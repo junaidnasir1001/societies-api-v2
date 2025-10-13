@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "societies": {
+      "command": "node",
+      "args": ["/Users/junaidnasir/Herd/Automation/Upwork-Projects/dan-project/src/mcp-server.js"],
+      "env": {
+        "GOOGLE_EMAIL": "research@boldspace.com",
+        "GOOGLE_PASSWORD": "advance.2002",
+        "SESSION_HOME": "/Users/junaidnasir/.mcp-societies",
+        "BROWSERBASE_WS_ENDPOINT": ""
+      }
+    }
+  }
+}
+

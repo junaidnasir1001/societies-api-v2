@@ -15,80 +15,176 @@ async function waitStable(page, panelSel, quietMs = 800, timeout = 30000) {
 
 export async function runSimulation(page, { society, template, inputText, simulateButtonText = "Simulate", email, password }) {
   const t0 = Date.now();
-  console.log("[sim] goto app.societies.io (direct app URL)");
+  console.error("[sim] goto app.societies.io (direct app URL)");
   
-  // Go directly to app URL
-  await page.goto("https://app.societies.io", { waitUntil: "domcontentloaded", timeout: 90000 });
+  // Set overall timeout to prevent hanging (10 minutes max)
+  const overallTimeout = setTimeout(() => {
+    console.error("[sim] ❌ Overall timeout reached (10 minutes)");
+    throw new Error("Simulation timeout: Process took longer than 10 minutes");
+  }, 600000);
+  
+  try {
+    // Go directly to app URL
+    await page.goto("https://app.societies.io", { waitUntil: "domcontentloaded", timeout: 90000 });
   let workingPage = page;
   
-  console.log("[sim] Waiting for page to load...");
+  console.error("[sim] Waiting for page to load...");
   await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {});
   
-  // Check if we need SSO
-  console.log("[sim] Checking for 'Continue with Google' button...");
+  // Check if we're already logged in by looking for app elements
+  console.error("[sim] Checking if already logged in...");
   try {
-    const ssoBtn = page.getByRole('button', { name: 'Continue with Google' });
-    if (await ssoBtn.count() > 0) {
-      console.log("[sim] Clicking 'Continue with Google'...");
-      await ssoBtn.click({ timeout: 10000 });
-      console.log("[sim] SSO clicked, waiting for Google login page...");
+    // Look for elements that indicate we're already in the app
+    const appElements = await page.locator('#create-new-test-button, [data-testid="create-new-test"], button:has-text("Create New Test")').count();
+    if (appElements > 0) {
+      console.error("[sim] ✅ Already logged in - found app elements!");
+      await page.waitForTimeout(2000);
+    } else {
+      console.error("[sim] Not logged in, checking for SSO button...");
       
-      // Wait for Google login page
-      await page.waitForLoadState("domcontentloaded", { timeout: 30000 });
-      
-      // Check if Google login is needed (might already be logged in)
-      console.log("[sim] Checking if Google login is required...");
-      const emailInput = page.getByRole('textbox', { name: /email or phone/i });
-      
-      if (await emailInput.count() > 0 && email && password) {
-        console.log("[sim] Google login required, filling credentials...");
+      // Check if we need SSO
+      const ssoBtn = page.getByRole('button', { name: 'Continue with Google' });
+      if (await ssoBtn.count() > 0) {
+        console.error("[sim] Clicking 'Continue with Google'...");
+        await ssoBtn.click({ timeout: 10000 });
+        console.error("[sim] SSO clicked, waiting for Google login page...");
         
-        // Fill email
-        await emailInput.fill(email, { timeout: 10000 });
-        await page.getByRole('button', { name: 'Next' }).click({ timeout: 10000 });
-        
-        // Fill password
-        await page.waitForTimeout(2000);
-        await page.getByRole('textbox', { name: /enter your password/i }).waitFor({ timeout: 30000 });
-        await page.getByRole('textbox', { name: /enter your password/i }).fill(password, { timeout: 10000 });
-        await page.getByRole('button', { name: 'Next' }).click({ timeout: 10000 });
-        
-        console.log("[sim] Google login submitted, waiting for redirect...");
+        // Wait for Google login page
         await page.waitForLoadState("domcontentloaded", { timeout: 30000 });
         
+        // Check if Google login is needed (might already be logged in)
+        console.error("[sim] Checking if Google login is required...");
+        const emailInput = page.getByRole('textbox', { name: /email or phone/i });
+      
+      if (await emailInput.count() > 0 && email && password) {
+        console.error("[sim] Google login required, filling credentials...");
+        
+        // Fill email with more robust approach
+        try {
+          await emailInput.waitFor({ timeout: 10000, state: 'visible' });
+          await emailInput.clear();
+          await emailInput.fill(email, { timeout: 10000 });
+          console.error(`[sim] ✅ Email filled: ${email}`);
+          
+          // Wait a bit for the field to register the input
+          await page.waitForTimeout(1000);
+          
+          // Click Next button
+          const nextBtn = page.getByRole('button', { name: 'Next' });
+          await nextBtn.waitFor({ timeout: 10000, state: 'visible' });
+          await nextBtn.click({ timeout: 10000 });
+          console.error("[sim] ✅ Next button clicked");
+        } catch (emailErr) {
+          console.error(`[sim] ❌ Email filling failed: ${emailErr.message}`);
+          // Try alternative approach
+          try {
+            await emailInput.click();
+            await page.waitForTimeout(500);
+            await emailInput.fill(email);
+            await page.waitForTimeout(1000);
+            await page.keyboard.press('Enter');
+            console.error("[sim] ✅ Email filled with alternative method");
+          } catch (altErr) {
+            console.error(`[sim] ❌ Alternative email method failed: ${altErr.message}`);
+            throw new Error(`Could not fill email field: ${emailErr.message}`);
+          }
+        }
+        
+        // Fill password with more robust approach
+        await page.waitForTimeout(3000); // Wait longer for password page to load
+        
+        try {
+          const passwordInput = page.getByRole('textbox', { name: /enter your password/i });
+          await passwordInput.waitFor({ timeout: 30000, state: 'visible' });
+          await passwordInput.clear();
+          await passwordInput.fill(password, { timeout: 10000 });
+          console.error("[sim] ✅ Password filled");
+          
+          // Wait a bit for the field to register the input
+          await page.waitForTimeout(1000);
+          
+          // Click Next button
+          const nextBtn = page.getByRole('button', { name: 'Next' });
+          await nextBtn.waitFor({ timeout: 10000, state: 'visible' });
+          await nextBtn.click({ timeout: 10000 });
+          console.error("[sim] ✅ Password Next button clicked");
+        } catch (passwordErr) {
+          console.error(`[sim] ❌ Password filling failed: ${passwordErr.message}`);
+          // Try alternative approach
+          try {
+            const passwordInput = page.locator('input[type="password"]');
+            await passwordInput.waitFor({ timeout: 30000, state: 'visible' });
+            await passwordInput.fill(password);
+            await page.waitForTimeout(1000);
+            await page.keyboard.press('Enter');
+            console.error("[sim] ✅ Password filled with alternative method");
+          } catch (altErr) {
+            console.error(`[sim] ❌ Alternative password method failed: ${altErr.message}`);
+            throw new Error(`Could not fill password field: ${passwordErr.message}`);
+          }
+        }
+        
+        console.error("[sim] Google login submitted, waiting for redirect...");
+        await page.waitForLoadState("domcontentloaded", { timeout: 30000 });
+        
+        // Wait for Google's redirect chain to complete
+        await page.waitForTimeout(5000);
+        
         // Handle consent screen if present
-        console.log("[sim] Checking for Google consent screen...");
+        console.error("[sim] Checking for Google consent screen...");
         await page.waitForTimeout(2000);
         try {
           const continueBtn = page.getByRole('button', { name: /continue|allow|accept/i });
           if (await continueBtn.count() > 0) {
-            console.log("[sim] Clicking consent Continue button...");
+            console.error("[sim] Clicking consent Continue button...");
             await continueBtn.first().click({ timeout: 10000 });
             await page.waitForLoadState("networkidle", { timeout: 60000 });
           }
         } catch (consentErr) {
-          console.log("[sim] No consent screen or already consented");
+          console.error("[sim] No consent screen or already consented");
         }
         
         // Final wait for app to load
         await page.waitForLoadState("networkidle", { timeout: 60000 }).catch(() => {});
+        
+        // If still on Google accounts page (SetSID, etc), wait for final redirect
+        if (page.url().includes('accounts.google.com')) {
+          console.error("[sim] Still on Google accounts, waiting for final redirect...");
+          try {
+            await page.waitForURL('https://app.societies.io/**', { timeout: 30000 });
+            console.error("[sim] ✅ Successfully redirected to app");
+          } catch (redirectErr) {
+            console.error(`[sim] ❌ Redirect timeout: ${redirectErr.message}`);
+            console.error("[sim] Current URL:", page.url());
+            // Try to navigate back to app manually
+            try {
+              await page.goto('https://app.societies.io', { waitUntil: 'domcontentloaded', timeout: 30000 });
+              console.error("[sim] ✅ Manual navigation to app successful");
+            } catch (navErr) {
+              console.error(`[sim] ❌ Manual navigation failed: ${navErr.message}`);
+              throw new Error(`Google login redirect failed: ${redirectErr.message}`);
+            }
+          }
+          await page.waitForTimeout(3000);
+        }
+        } else {
+          console.error("[sim] Already logged into Google or no credentials provided");
+          await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {});
+        }
       } else {
-        console.log("[sim] Already logged into Google or no credentials provided");
-        await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {});
+        console.error("[sim] No SSO button, already logged in");
       }
-    } else {
-      console.log("[sim] No SSO button, already logged in");
     }
   } catch (ssoErr) {
-    console.log("[sim] SSO/login check done:", ssoErr.message);
+    console.error("[sim] SSO/login check done:", ssoErr.message);
   }
   
   // Wait a bit for app to fully load
-  console.log("[sim] Waiting for app to load...");
+  console.error("[sim] Waiting for app to load...");
   await page.waitForTimeout(5000);
   
   // Handle auto-open modal (Personal Societies + Target Societies) - FROM SCREENSHOT
-  console.log("[sim] Checking for auto-open societies modal...");
+  console.error("[sim] Checking for auto-open societies modal...");
   
   // Wait extra time for modal animation
   await page.waitForTimeout(3000);
@@ -98,57 +194,97 @@ export async function runSimulation(page, { society, template, inputText, simula
     const societyCard = page.getByRole('button', { name: 'Example Startup Investors' }).first();
     const isCardVisible = await societyCard.isVisible().catch(() => false);
     
-    console.log(`[sim] Society card visible: ${isCardVisible}`);
+    console.error(`[sim] Society card visible: ${isCardVisible}`);
     
     if (isCardVisible) {
-      console.log("[sim] ✅ Auto-open modal detected!");
-      console.log("[sim] Clicking 'Example Startup Investors' to dismiss modal...");
+      console.error("[sim] ✅ Auto-open modal detected!");
+      console.error("[sim] Clicking 'Example Startup Investors' to dismiss modal...");
       
       // Click with force if needed
       try {
         await societyCard.click({ timeout: 3000 });
-        console.log("[sim] Clicked on society card (normal)");
+        console.error("[sim] Clicked on society card (normal)");
       } catch (clickErr) {
         await societyCard.click({ force: true, timeout: 3000 });
-        console.log("[sim] Force clicked on society card");
+        console.error("[sim] Force clicked on society card");
       }
       
       // Wait for modal to close
-      await page.waitForTimeout(2000);
-      console.log("[sim] ✅ Modal dismissed successfully!");
+      try {
+        await page.waitForTimeout(2000);
+        console.error("[sim] ✅ Modal dismissed successfully!");
+      } catch (modalErr) {
+        console.error(`[sim] ⚠️ Modal timeout error (page might be closed): ${modalErr.message}`);
+        // Check if page is still valid
+        try {
+          await page.url();
+          console.error("[sim] ✅ Page is still valid, continuing...");
+        } catch (pageErr) {
+          console.error(`[sim] ❌ Page is closed: ${pageErr.message}`);
+          throw new Error(`Page was closed during modal handling: ${pageErr.message}`);
+        }
+      }
     } else {
-      console.log("[sim] No auto-open modal found (society card not visible)");
+      console.error("[sim] No auto-open modal found (society card not visible)");
     }
   } catch (modalErr) {
-    console.log("[sim] Modal handling error:", modalErr.message);
+    console.error("[sim] Modal handling error:", modalErr.message);
   }
   
   // Debug: Check what's on the page after modal close
-  console.log("[sim] DEBUG: Current URL:", page.url());
+  console.error("[sim] DEBUG: Current URL:", page.url());
   const pageTitle = await page.title().catch(() => "N/A");
-  console.log("[sim] DEBUG: Page title:", pageTitle);
+  console.error("[sim] DEBUG: Page title:", pageTitle);
 
   // If Chromium shows chrome-error (e.g., DNS failure on Supabase OAuth), retry SSO once
   try {
     if (page.url().startsWith('chrome-error://chromewebdata')) {
-      console.log('[sim] ⚠️ Chrome error page detected after SSO. Retrying SSO once...');
-      for (let attempt = 1; attempt <= 2; attempt++) {
+      console.error('[sim] ⚠️ Chrome error page detected after SSO. Retrying SSO once...');
+      for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-          console.log(`[sim] SSO retry attempt ${attempt}...`);
+          console.error(`[sim] SSO retry attempt ${attempt}...`);
           await page.goto('https://app.societies.io', { waitUntil: 'domcontentloaded', timeout: 45000 });
+          await page.waitForTimeout(3000);
+          
           const retryBtn = page.getByRole('button', { name: 'Continue with Google' });
           if (await retryBtn.count() > 0) {
             await retryBtn.click({ timeout: 10000 });
             await page.waitForLoadState('networkidle', { timeout: 60000 }).catch(() => {});
+            await page.waitForTimeout(5000); // Extra wait for app initialization
           }
-          if (!page.url().startsWith('chrome-error://')) {
-            console.log('[sim] ✅ SSO retry succeeded');
+          
+          if (!page.url().startsWith('chrome-error://') && page.url().includes('app.societies.io')) {
+            console.error('[sim] ✅ SSO retry succeeded');
+            // Wait for app to fully initialize
+            await page.waitForTimeout(5000);
             break;
           }
-        } catch {}
-        await page.waitForTimeout(1500);
+        } catch (e) {
+          console.error(`[sim] Retry ${attempt} error:`, e.message);
+        }
+        await page.waitForTimeout(2000);
       }
-      console.log('[sim] DEBUG after SSO retry URL:', page.url());
+      console.error('[sim] DEBUG after SSO retry URL:', page.url());
+      
+      // Check for modal again after retry
+      if (page.url().includes('app.societies.io')) {
+        console.error('[sim] Checking for modal after retry...');
+        await page.waitForTimeout(3000);
+        
+        const societyCard = page.getByRole('button', { name: 'Example Startup Investors' }).first();
+        const isCardVisible = await societyCard.isVisible().catch(() => false);
+        
+        if (isCardVisible) {
+          console.error("[sim] ✅ Modal appeared after retry!");
+          try {
+            await societyCard.click({ timeout: 3000 });
+          } catch {
+            await societyCard.click({ force: true, timeout: 3000 });
+          }
+          await page.waitForTimeout(2000);
+          console.error("[sim] ✅ Modal dismissed!");
+        }
+      }
     }
   } catch {}
 
@@ -160,7 +296,7 @@ export async function runSimulation(page, { society, template, inputText, simula
         if (await dropdown.count()) {
           await dropdown.waitFor({ timeout: 5000, state: 'visible' });
           await dropdown.click();
-          console.log(`[sim] Opened ${fieldName} dropdown`);
+          console.error(`[sim] Opened ${fieldName} dropdown`);
           
           // Wait a bit for dropdown to open
           await workingPage.waitForTimeout(500);
@@ -168,14 +304,14 @@ export async function runSimulation(page, { society, template, inputText, simula
           // Try to select the option
           const option = workingPage.locator(`text="${value}"`).first();
           await option.click({ timeout: 5000 });
-          console.log(`[sim] Selected ${fieldName}: "${value}"`);
+          console.error(`[sim] Selected ${fieldName}: "${value}"`);
           return true;
         }
       } catch (e) {
         continue;
       }
     }
-    console.log(`[sim] Warning: Could not find ${fieldName} dropdown`);
+    console.error(`[sim] Warning: Could not find ${fieldName} dropdown`);
     return false;
   };
 
@@ -186,34 +322,34 @@ export async function runSimulation(page, { society, template, inputText, simula
         const input = workingPage.locator(sel).first();
         if (await input.count()) {
           await input.fill(value);
-          console.log(`[sim] Filled ${fieldName}: "${value}"`);
+          console.error(`[sim] Filled ${fieldName}: "${value}"`);
           return true;
         }
       } catch (e) {
         continue;
       }
     }
-    console.log(`[sim] Warning: Could not find ${fieldName} input`);
+    console.error(`[sim] Warning: Could not find ${fieldName} input`);
     return false;
   };
 
   // Society is already selected after modal dismiss, so skip this step
-  console.log("[sim] Society should be already selected from modal dismiss...");
+  console.error("[sim] Society should be already selected from modal dismiss...");
   
   // If we still need to select society (commented for now):
   // if (society) {
-  //   console.log(`[sim] Looking for society button: "${society}"`);
+  //   console.error(`[sim] Looking for society button: "${society}"`);
   //   await workingPage.getByRole('button', { name: `Example ${society}` }).first().click();
   // }
   
   await workingPage.waitForTimeout(1000);
   // Click "Create new test" button - MUST CLICK to open templates modal
-  console.log("[sim] Looking for 'Create New Test' button (ID: #create-new-test-button)...");
+  console.error("[sim] Looking for 'Create New Test' button (ID: #create-new-test-button)...");
   try {
     // Use exact ID selector from user
     const createBtn = workingPage.locator('#create-new-test-button');
     const count = await createBtn.count();
-    console.log(`[sim] Found ${count} 'Create New Test' button(s)`);
+    console.error(`[sim] Found ${count} 'Create New Test' button(s)`);
     
     if (count > 0) {
       // Wait for button to be visible
@@ -222,22 +358,23 @@ export async function runSimulation(page, { society, template, inputText, simula
       // Try regular click first
       try {
         await createBtn.click({ timeout: 3000 });
-        console.log("[sim] ✅ Clicked 'Create New Test' button - Templates modal should open!");
+        console.error("[sim] ✅ Clicked 'Create New Test' button - Templates modal should open!");
       } catch (clickErr) {
         // If regular click fails (overlay blocking), use force click
-        console.log("[sim] Regular click failed, trying force click...");
+        console.error("[sim] Regular click failed, trying force click...");
         await createBtn.click({ force: true, timeout: 3000 });
-        console.log("[sim] ✅ Force clicked 'Create New Test' button!");
+        console.error("[sim] ✅ Force clicked 'Create New Test' button!");
       }
       
       // Wait longer for templates modal to load
-      console.log("[sim] Waiting for templates modal to open...");
+      console.error("[sim] Waiting for templates modal to open...");
       await workingPage.waitForTimeout(3000);
+      
     } else {
-      console.log("[sim] ❌ 'Create New Test' button not found!");
+      console.error("[sim] ❌ 'Create New Test' button not found!");
       
       // Try fallback selectors
-      console.log("[sim] Trying fallback selectors...");
+      console.error("[sim] Trying fallback selectors...");
       const fallbacks = [
         'div:has-text("Create New Test")',
         'text="Create New Test"'
@@ -248,7 +385,7 @@ export async function runSimulation(page, { society, template, inputText, simula
           const btn = workingPage.locator(sel).first();
           if (await btn.count() > 0) {
             await btn.click({ timeout: 3000 });
-            console.log(`[sim] Clicked using fallback: ${sel}`);
+            console.error(`[sim] Clicked using fallback: ${sel}`);
             await workingPage.waitForTimeout(3000);
             break;
           }
@@ -258,38 +395,38 @@ export async function runSimulation(page, { society, template, inputText, simula
       }
     }
   } catch (e) {
-    console.log("[sim] Error clicking 'Create New Test' button:", e.message);
+    console.error("[sim] Error clicking 'Create New Test' button:", e.message);
   }
 
   // Select template (it's a BUTTON with text inside)
   if (template) {
-    console.log(`[sim] Looking for template button: "${template}"`);
+    console.error(`[sim] Looking for template button: "${template}"`);
     try {
       // Try getByRole first
       await workingPage.getByRole('button', { name: template }).first().click({ timeout: 5000 });
-      console.log(`[sim] Clicked template button: "${template}"`);
+      console.error(`[sim] Clicked template button: "${template}"`);
       await workingPage.waitForTimeout(500);
     } catch (e) {
       try {
         // Fallback: Try button with p text (from user's HTML: button class="css-1lbwnuz" with p class="css-1wfg96s")
         const templateBtn = workingPage.locator(`button:has(p:text("${template}"))`).first();
         await templateBtn.click({ timeout: 5000 });
-        console.log(`[sim] Clicked template button with p:text: "${template}"`);
+        console.error(`[sim] Clicked template button with p:text: "${template}"`);
         await workingPage.waitForTimeout(500);
       } catch (e2) {
-        console.log(`[sim] Could not find template button "${template}", continuing...`);
+        console.error(`[sim] Could not find template button "${template}", continuing...`);
       }
     }
   }
   
   // Fill input text (use role-based selector)
   if (inputText) {
-    console.log("[sim] Filling article text...");
+    console.error("[sim] Filling article text...");
     try {
       await workingPage.getByRole('textbox', { name: /write your article/i }).fill(inputText, { timeout: 5000 });
-      console.log(`[sim] Filled input text: "${inputText}"`);
+      console.error(`[sim] Filled input text: "${inputText}"`);
     } catch (e) {
-      console.log("[sim] Could not fill article text, trying fallback selectors...");
+      console.error("[sim] Could not fill article text, trying fallback selectors...");
       await fillInput([
         'textarea[name="inputText"]',
         'textarea[name="input"]',
@@ -304,73 +441,73 @@ export async function runSimulation(page, { society, template, inputText, simula
     const panelSel = '#results-panel, .results-panel, [data-testid="results-panel"], [class*="result"]';
     
     try {
-      console.log(`[sim] Waiting for results panel... ${retryAttempt > 0 ? '(retry)' : ''}`);
+      console.error(`[sim] Waiting for results panel... ${retryAttempt > 0 ? '(retry)' : ''}`);
       
       // Step 1: Wait for "Impact Score" heading (primary indicator)
-      console.log("[sim] Waiting for 'Impact Score' heading...");
+      console.error("[sim] Waiting for 'Impact Score' heading...");
       try {
-        await workingPage.waitForSelector('text=Impact Score', { timeout: 90000 });
-        console.log("[sim] ✅ Impact Score heading found!");
+        await workingPage.waitForSelector('text=Impact Score', { timeout: 240000 }); // 4 minutes
+        console.error("[sim] ✅ Impact Score heading found!");
       } catch (e) {
-        console.log("[sim] ⚠️ Impact Score heading not found, trying panel selector...");
-        await workingPage.waitForSelector(panelSel, { timeout: 90000 });
+        console.error("[sim] ⚠️ Impact Score heading not found, trying panel selector...");
+        await workingPage.waitForSelector(panelSel, { timeout: 240000 }); // 4 minutes
       }
       
       // Step 2: Wait for score value (e.g., "26 / 100")
-      console.log("[sim] Waiting for score value...");
+      console.error("[sim] Waiting for score value...");
       try {
         await workingPage.waitForFunction(() => {
           const panel = document.querySelector('#results-panel, .results-panel, [class*="result"]');
           return panel && /\d+\s*\/\s*\d+/.test(panel.innerText);
         }, { timeout: 60000 });
-        console.log("[sim] ✅ Score value found!");
+        console.error("[sim] ✅ Score value found!");
       } catch (e) {
-        console.log("[sim] ⚠️ Score value not found within timeout");
+        console.error("[sim] ⚠️ Score value not found within timeout");
       }
       
       // Step 3: Wait for "Attention" section
-      console.log("[sim] Waiting for 'Attention' section...");
+      console.error("[sim] Waiting for 'Attention' section...");
       try {
         await workingPage.waitForSelector('text=Attention', { timeout: 30000 });
-        console.log("[sim] ✅ Attention section found!");
+        console.error("[sim] ✅ Attention section found!");
       } catch (e) {
-        console.log("[sim] ⚠️ Attention section not found");
+        console.error("[sim] ⚠️ Attention section not found");
       }
       
       // Step 4: Wait for "Insights" section
-      console.log("[sim] Waiting for 'Insights' section...");
+      console.error("[sim] Waiting for 'Insights' section...");
       try {
         await workingPage.waitForSelector('text=Insights', { timeout: 30000 });
-        console.log("[sim] ✅ Insights section found!");
+        console.error("[sim] ✅ Insights section found!");
       } catch (e) {
-        console.log("[sim] ⚠️ Insights section not found");
+        console.error("[sim] ⚠️ Insights section not found");
       }
 
       // Step 5: Spinner wait (best-effort)
-      console.log("[sim] Checking for spinner...");
+      console.error("[sim] Checking for spinner...");
       const spinnerSel = `${panelSel} .spinner, ${panelSel} [data-loading="true"], ${panelSel} [aria-busy="true"]`;
       if (await workingPage.locator(spinnerSel).count() > 0) {
-        console.log("[sim] Spinner detected, waiting for completion...");
+        console.error("[sim] Spinner detected, waiting for completion...");
         try { await workingPage.waitForSelector(spinnerSel, { state: "detached", timeout: 90000 }); } catch {}
       }
 
       // Step 6: Stability wait (final confirmation - best effort)
-      console.log("[sim] Checking DOM stability (800ms, 10sec max)...");
+      console.error("[sim] Checking DOM stability (800ms, 10sec max)...");
       try {
         await waitStable(workingPage, panelSel, 800, 10000);
-        console.log("[sim] ✅ DOM stable!");
+        console.error("[sim] ✅ DOM stable!");
       } catch (e) {
-        console.log("[sim] ⚠️ DOM still changing, but all key elements present - proceeding...");
+        console.error("[sim] ⚠️ DOM still changing, but all key elements present - proceeding...");
       }
       
-      console.log("[sim] ✅ Results ready for extraction!");
+      console.error("[sim] ✅ Results ready for extraction!");
       return true;
       
     } catch (err) {
       if (retryAttempt < 1) {
-        console.log(`[sim] ⚠️ Results wait failed, retrying once... (${err.message})`);
+        console.error(`[sim] ⚠️ Results wait failed, retrying once... (${err.message})`);
         // Click Simulate again
-        console.log("[sim] Clicking Simulate again for retry...");
+        console.error("[sim] Clicking Simulate again for retry...");
         try {
           await workingPage.locator('div').filter({ hasText: /^Simulate$/ }).first().click({ timeout: 10000 });
         } catch (e) {
@@ -384,22 +521,22 @@ export async function runSimulation(page, { society, template, inputText, simula
   };
 
   // Click Simulate (it's a DIV, not button!)
-  console.log("[sim] Looking for Simulate button...");
+  console.error("[sim] Looking for Simulate button...");
   try {
     await workingPage.locator('div').filter({ hasText: /^Simulate$/ }).first().click({ timeout: 10000 });
-    console.log("[sim] Clicked Simulate div");
+    console.error("[sim] Clicked Simulate div");
   } catch (e) {
     // Fallback to button selector
     const simBtn = workingPage.locator(`button:has-text("${simulateButtonText}")`).first();
     await simBtn.click({ timeout: 10000 });
-    console.log("[sim] Clicked Simulate button (fallback)");
+    console.error("[sim] Clicked Simulate button (fallback)");
   }
 
   // Wait for results with retry
   await waitForResults();
 
   // Extract right panel data
-  console.log("[sim] Extracting results data...");
+  console.error("[sim] Extracting results data...");
   const resultsData = await workingPage.evaluate(() => {
     // Helper to find text containing pattern
     const findTextContaining = (parent, pattern) => {
@@ -486,13 +623,18 @@ export async function runSimulation(page, { society, template, inputText, simula
     };
   });
 
-  console.log("[sim] Extracted Impact Score:", resultsData.impactScore.value + '/' + resultsData.impactScore.max);
-  console.log("[sim] Extracted Attention:", JSON.stringify(resultsData.attention));
-  console.log("[sim] Extracted Insights length:", resultsData.insights.length, "chars");
+  console.error("[sim] Extracted Impact Score:", resultsData.impactScore.value + '/' + resultsData.impactScore.max);
+  console.error("[sim] Extracted Attention:", JSON.stringify(resultsData.attention));
+  console.error("[sim] Extracted Insights length:", resultsData.insights.length, "chars");
 
-  return {
-    result: resultsData,
-    metadata: { ms: Date.now() - t0, url: workingPage.url() }
-  };
+    return {
+      result: resultsData,
+      metadata: { ms: Date.now() - t0, url: workingPage.url() }
+    };
+    
+  } finally {
+    // Clear the overall timeout
+    clearTimeout(overallTimeout);
+  }
 }
 

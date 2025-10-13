@@ -6,13 +6,18 @@
   "scripts": {
     "dev": "node src/cli.js --demo",
     "simulate": "node src/cli.js",
-    "server": "node src/server.js"
+    "server": "node src/server.js",
+    "api": "node src/api-server.js",
+    "mcp": "node src/mcp-server.js",
+    "test:mcp": "node test-mcp.js",
+    "test:api": "curl -X GET http://localhost:3001/health"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^0.5.0",
     "ajv": "^8.17.1",
+    "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "playwright": "^1.47.0"
   }
 }
-

@@ -35,6 +35,49 @@ npm run dev -- --wsEndpoint="wss://connect.browserbase.com/..."
 npm run dev -- --output="custom-result.json"
 ```
 
+### HTTP API Server (Standalone)
+RESTful API for integration with any application:
+
+```bash
+# Start API server
+npm run api
+
+# Test health check
+npm run test:api
+```
+
+**🚀 API Endpoints:**
+- `POST /api/societies/test-content` - Run content simulation
+- `GET /health` - Health check
+- `GET /api/info` - API information
+
+**📖 Complete API Documentation:** [API_USAGE_EXAMPLES.md](./API_USAGE_EXAMPLES.md)
+
+### MCP Server (Model Context Protocol)
+Use as a tool in **Claude Desktop** (recommended) or Cursor AI:
+
+```bash
+# Start MCP server
+npm run mcp
+
+# Test the MCP integration
+npm run test:mcp
+```
+
+**🎯 Quick Setup Guides:**
+- **Claude Desktop** (Recommended): [CLAUDE_DESKTOP_QUICK_SETUP.md](./CLAUDE_DESKTOP_QUICK_SETUP.md) - 3 minutes
+- **Cursor AI**: [QUICK_START.md](./QUICK_START.md) - 3 steps
+- **Full Documentation**: [MCP_SETUP.md](./MCP_SETUP.md)
+- **Choose Your Interface**: [INTEGRATION_OPTIONS.md](./INTEGRATION_OPTIONS.md)
+
+**Quick Claude Desktop Setup**:
+```bash
+# macOS
+cp claude_desktop_config.json ~/Library/Application\ Support/Claude/claude_desktop_config.json
+# Restart Claude Desktop, then ask:
+# "Test 'your content' as an article for Startup Investors"
+```
+
 ### HTTP Endpoint
 ```bash
 # Start server

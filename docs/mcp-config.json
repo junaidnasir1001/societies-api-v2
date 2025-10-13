@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "societies": {
+      "command": "node",
+      "args": [
+        "/Users/junaidnasir/Herd/Automation/Upwork-Projects/dan-project/src/mcp-server.js"
+      ],
+      "env": {
+        "NODE_ENV": "production"
+      }
+    }
+  }
+}
+

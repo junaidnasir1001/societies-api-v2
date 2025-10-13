@@ -1,8 +1,9 @@
-import { chromium } from "playwright";
 import "dotenv/config";
 import { googleLogin } from "./googleLogin.js";
 import { runSimulation } from "./societies.js";
 import Ajv from "ajv";
+import { getBrowser } from "./getBrowser.js";
+import { STORAGE_STATE } from "./sessionPaths.js";
 
 const ajv = new Ajv({ allErrors: true });
 const outputSchema = {
@@ -49,23 +50,7 @@ const outputSchema = {
 
 const validate = ajv.compile(outputSchema);
 
-const getBrowser = async (wsEndpoint = null) => {
-  // Priority: param > env
-  const ws = wsEndpoint || process.env.BROWSERBASE_WS_ENDPOINT;
-  
-  if (ws) {
-    const browser = await chromium.connectOverCDP(ws);
-    const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-    const page = await context.newPage();
-    return { browser, context, page, mode: "browserbase" };
-  }
-  
-  // Note: headless: true triggers Google bot detection - use Browserbase for production
-  const browser = await chromium.launch({ headless: false }); // visible browser to avoid bot detection
-  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-  const page = await context.newPage();
-  return { browser, context, page, mode: "local" };
-};
+// Use the new persistent browser management
 
 export async function run({ 
   society = "", 
@@ -77,11 +62,11 @@ export async function run({
   const t0 = Date.now();
   const timingsMs = { googleLogin: 0, simulate: 0, total: 0 };
   
-  const { browser, context, page, mode } = await getBrowser(wsEndpoint);
+  const { context, page, mode } = await getBrowser();
 
   try {
     // Don't do Google login separately - let societies.io handle SSO
-    console.log("[skip] Skipping standalone Google login - will use SSO in societies.io");
+    console.error("[skip] Skipping standalone Google login - will use SSO in societies.io");
 
     const sim = await runSimulation(page, { 
       society, 
@@ -121,11 +106,19 @@ export async function run({
       throw err;
     }
 
+    // Save storage state after successful run for debugging
+    try {
+      await context.storageState({ path: STORAGE_STATE });
+      console.error("[session] ✅ Storage state saved");
+    } catch (storageErr) {
+      console.error("[session] ⚠️ Could not save storage state:", storageErr.message);
+    }
+    
     return out;
   } finally {
+    // Close context but profile persists on disk
     try { await context?.close(); } catch {}
-    try { await browser?.close(); } catch {}
-    console.log(`[done] mode=${mode} totalMs=${timingsMs.total}`);
+    console.error(`[done] mode=${mode} totalMs=${timingsMs.total}`);
   }
 }
 
