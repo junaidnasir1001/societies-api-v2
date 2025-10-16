@@ -11,6 +11,14 @@ dotenv.config();
 const app = express();
 const PORT = process.env.API_PORT || 3001;
 
+// In-memory job store for async flow
+// NOTE: For production, replace with Redis/DB. This is sufficient for MCP polling.
+const jobs = new Map();
+
+function generateJobId(prefix = 'job') {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
@@ -23,71 +31,87 @@ app.use((req, res, next) => {
   next();
 });
 
-// Normalize testType to allowed values (reused from MCP server)
+// Normalize testType - supports ALL societies.io UI types + custom types
 function normalizeTestType(testType) {
+  if (!testType) return 'Article'; // Default fallback
+  
   const normalized = testType.toLowerCase().trim();
   
-  // Map common variants to the 5 allowed types: Article, Website Content, Email, Tweet, Post
-  const mappings = {
+  // Official societies.io test types (from UI)
+  const officialTypes = {
+    'survey': 'Survey',
+    'article': 'Article',
+    'website content': 'Website Content',
+    'advertisement': 'Advertisement',
+    'linkedin post': 'LinkedIn Post',
+    'instagram post': 'Instagram Post',
+    'x post': 'X Post',
+    'tiktok script': 'TikTok Script',
+    'email subject line': 'Email Subject Line',
+    'email': 'Email',
+    'product proposition': 'Product Proposition',
+  };
+  
+  // Check if it's an official type (case-insensitive)
+  if (officialTypes[normalized]) {
+    return officialTypes[normalized];
+  }
+  
+  // Map common variants to official types
+  const variantMappings = {
     // Website Content variants
     'web': 'Website Content',
     'site': 'Website Content',
     'site content': 'Website Content',
     'page': 'Website Content',
     'website': 'Website Content',
-    'website content': 'Website Content',
     'webpage': 'Website Content',
     'landing page': 'Website Content',
     'homepage': 'Website Content',
-    'blog post': 'Website Content',
-    'blog': 'Website Content',
     
-    // Tweet variants
-    'x': 'Tweet',
-    'tweet': 'Tweet',
-    'x post': 'Tweet',
-    'twitter': 'Tweet',
-    'twitter post': 'Tweet',
-    'microblog': 'Tweet',
-    'short post': 'Tweet',
+    // Social Media variants
+    'tweet': 'X Post',
+    'twitter': 'X Post',
+    'twitter post': 'X Post',
+    'x': 'X Post',
+    'linkedin': 'LinkedIn Post',
+    'instagram': 'Instagram Post',
+    'insta': 'Instagram Post',
+    'tiktok': 'TikTok Script',
     
     // Email variants
-    'email': 'Email',
-    'newsletter': 'Email',
     'mail': 'Email',
+    'newsletter': 'Email',
     'email campaign': 'Email',
-    'email marketing': 'Email',
-    'promotional email': 'Email',
-    
-    // Post variants (Social Media)
-    'post': 'Post',
-    'linkedin post': 'Post',
-    'linkedin': 'Post',
-    'instagram post': 'Post',
-    'instagram': 'Post',
-    'facebook post': 'Post',
-    'facebook': 'Post',
-    'social media': 'Post',
-    'social media post': 'Post',
-    'social post': 'Post',
-    'content': 'Post',
-    'social content': 'Post',
     
     // Article variants
-    'article': 'Article',
+    'blog': 'Article',
+    'blog post': 'Article',
     'blog article': 'Article',
+    'news': 'Article',
     'news article': 'Article',
-    'long form': 'Article',
-    'long-form': 'Article',
-    'editorial': 'Article',
-    'piece': 'Article',
     'story': 'Article',
-    'text': 'Article',
-    'copy': 'Article',
-    'content piece': 'Article',
+    
+    // Advertisement variants
+    'ad': 'Advertisement',
+    'ads': 'Advertisement',
+    'advert': 'Advertisement',
+    
+    // Product variants
+    'product': 'Product Proposition',
+    'proposition': 'Product Proposition',
   };
   
-  return mappings[normalized] || 'Article'; // Default to Article
+  // Check if it's a known variant
+  if (variantMappings[normalized]) {
+    return variantMappings[normalized];
+  }
+  
+  // If not found in mappings, return the original testType with proper capitalization
+  // This allows custom test types created by users
+  return testType.split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
 }
 
 // Optional API key middleware
@@ -141,12 +165,141 @@ app.get('/api/info', (req, res) => {
     version: '1.0.0',
     description: 'Test content with target audiences using societies.io simulation',
     endpoints: {
-      'POST /api/societies/test-content': 'Run content simulation',
+      'POST /api/societies/test-content': 'Run content simulation (sync by default; set mode="async" for async)',
+      'GET /api/jobs/:jobId': 'Get async job status/result',
+      'POST /api/societies/test-content-batch': 'Run multiple content simulations',
+      'GET /api/test-types': 'Get available test type choices',
       'GET /health': 'Health check',
       'GET /api/info': 'API information'
     },
-    allowedTestTypes: ['Article', 'Website Content', 'Email', 'Tweet', 'Post'],
-    normalization: 'Automatic normalization of common test type variants (e.g., "web" → "Website Content")'
+    officialTestTypes: [
+      'Survey', 'Article', 'Website Content', 'Advertisement',
+      'LinkedIn Post', 'Instagram Post', 'X Post', 'TikTok Script',
+      'Email Subject Line', 'Email', 'Product Proposition'
+    ],
+    customTypesSupported: true,
+    normalization: 'Automatic normalization of common test type variants (e.g., "web" → "Website Content", "tweet" → "X Post")',
+    features: [
+      'All societies.io UI test types supported',
+      'Custom test types accepted',
+      'Batch testing (up to 5 tests)',
+      'Intelligent test type normalization',
+      'Flexible API for any content type'
+    ]
+  });
+});
+
+// Get available test type choices endpoint
+app.get('/api/test-types', (req, res) => {
+  res.json({
+    ok: true,
+    testTypes: [
+      {
+        value: 'Survey',
+        label: 'Survey',
+        category: 'Survey',
+        description: 'Survey questions and forms for gathering feedback'
+      },
+      {
+        value: 'Article',
+        label: 'Article',
+        category: 'Marketing Content',
+        description: 'Long-form content like blog posts, news articles, editorial pieces'
+      },
+      {
+        value: 'Website Content',
+        label: 'Website Content',
+        category: 'Marketing Content',
+        description: 'Web pages, landing pages, homepage content, product descriptions'
+      },
+      {
+        value: 'Advertisement',
+        label: 'Advertisement',
+        category: 'Marketing Content',
+        description: 'Ad copy for digital or print advertisements'
+      },
+      {
+        value: 'LinkedIn Post',
+        label: 'LinkedIn Post',
+        category: 'Social Media Posts',
+        description: 'Professional posts for LinkedIn audience'
+      },
+      {
+        value: 'Instagram Post',
+        label: 'Instagram Post',
+        category: 'Social Media Posts',
+        description: 'Visual social media posts for Instagram'
+      },
+      {
+        value: 'X Post',
+        label: 'X Post',
+        category: 'Social Media Posts',
+        description: 'Twitter/X posts, microblogging content, short social updates'
+      },
+      {
+        value: 'TikTok Script',
+        label: 'TikTok Script',
+        category: 'Social Media Posts',
+        description: 'Short-form video scripts for TikTok'
+      },
+      {
+        value: 'Email Subject Line',
+        label: 'Email Subject Line',
+        category: 'Communication',
+        description: 'Email subject lines for campaigns and newsletters'
+      },
+      {
+        value: 'Email',
+        label: 'Email',
+        category: 'Communication',
+        description: 'Full email content for campaigns, newsletters, and communications'
+      },
+      {
+        value: 'Product Proposition',
+        label: 'Product Proposition',
+        category: 'Product',
+        description: 'Product value propositions and positioning statements'
+      }
+    ],
+    aliases: {
+      // Website Content
+      'web': 'Website Content',
+      'site': 'Website Content',
+      'website': 'Website Content',
+      'page': 'Website Content',
+      'landing page': 'Website Content',
+      
+      // Social Media
+      'tweet': 'X Post',
+      'twitter': 'X Post',
+      'x': 'X Post',
+      'linkedin': 'LinkedIn Post',
+      'instagram': 'Instagram Post',
+      'insta': 'Instagram Post',
+      'tiktok': 'TikTok Script',
+      
+      // Email
+      'mail': 'Email',
+      'newsletter': 'Email',
+      'email campaign': 'Email',
+      
+      // Article
+      'blog': 'Article',
+      'blog post': 'Article',
+      'news': 'Article',
+      'story': 'Article',
+      
+      // Advertisement
+      'ad': 'Advertisement',
+      'ads': 'Advertisement',
+      'advert': 'Advertisement',
+      
+      // Product
+      'product': 'Product Proposition',
+      'proposition': 'Product Proposition'
+    },
+    customTypesSupported: true,
+    note: 'API supports all official test types from societies.io UI. Custom test types created by users are also accepted and will be passed through to the simulation.'
   });
 });
 
@@ -156,7 +309,7 @@ app.post('/api/societies/test-content', apiKeyAuth, async (req, res) => {
   
   try {
     // Extract and validate request body
-    const { societyName, testType, testString } = req.body;
+    const { societyName, testType, testString, mode } = req.body;
     
     // Validate required fields
     if (!societyName || !testType || !testString) {
@@ -178,7 +331,82 @@ app.post('/api/societies/test-content', apiKeyAuth, async (req, res) => {
       });
     }
     
-    // Normalize testType
+    // Async mode: immediately return jobId and process in background
+    if (mode === 'async') {
+      const normalizedTestTypeForAsync = normalizeTestType(testType);
+      const jobId = generateJobId('societies');
+
+      jobs.set(jobId, {
+        id: jobId,
+        status: 'queued',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        inputs: { societyName, testType: normalizedTestTypeForAsync, testString },
+        result: null,
+        error: null,
+      });
+
+      // Kick off background work
+      (async () => {
+        try {
+          jobs.set(jobId, { ...jobs.get(jobId), status: 'running', updatedAt: new Date().toISOString() });
+
+          // Hard upper bound of 10 minutes, same as sync path
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Simulation timeout: Process took longer than 10 minutes')), 600000));
+
+          const simulationPromise = run({
+            society: societyName,
+            test: normalizedTestTypeForAsync,
+            text: testString,
+            runId: `api_async_${Date.now()}`,
+          });
+
+          const result = await Promise.race([simulationPromise, timeoutPromise]);
+
+          // Build the same response structure as sync path
+          const extras = result.result.extras || {};
+          const parsedImpact = extras.impactScore?.value ?? (result.result.plainText.match(/(\d+)\s*\/\s*100/)?.[1] ? parseInt(result.result.plainText.match(/(\d+)\s*\/\s*100/)?.[1]) : undefined);
+          const impactValueStr = (parsedImpact ?? 'N/A').toString();
+          const impactRating = extras.impactScore?.rating || result.result.plainText.match(/(Very Low|Low|Medium|High|Very High|Average)/)?.[1] || 'N/A';
+
+          const att = extras.attention || {};
+          const attFull = typeof att.full === 'number' ? att.full : (Number.isFinite(parseInt(att.full)) ? parseInt(att.full) : 0);
+          const attPartial = typeof att.partial === 'number' ? att.partial : (Number.isFinite(parseInt(att.partial)) ? parseInt(att.partial) : 0);
+          const attIgnore = typeof att.ignore === 'number' ? att.ignore : (Number.isFinite(parseInt(att.ignore)) ? parseInt(att.ignore) : 0);
+
+          const insights = extras.insights || result.result.plainText.match(/Insights\s+([\s\S]+?)(?:\n\n|Ask a Follow-up|Conversation|$)/)?.[1]?.trim() || '';
+
+          const summaryText = `Impact Score: ${impactValueStr}/100. Attention: Full ${attFull}%, Partial ${attPartial}%, Ignore ${attIgnore}%`;
+
+          const response = {
+            ok: true,
+            inputs: { societyName, testType: normalizedTestTypeForAsync, testString },
+            results: {
+              impactScore: { value: impactValueStr, rating: impactRating },
+              attention: { full: attFull, partial: attPartial, ignore: attIgnore },
+              insights,
+              summaryText,
+              keyFindings: [
+                `Impact score: ${impactValueStr}/100 (${impactRating})`,
+                `Full attention: ${attFull}%`,
+                `Ignored: ${attIgnore}%`
+              ]
+            }
+          };
+
+          jobs.set(jobId, { ...jobs.get(jobId), status: 'done', updatedAt: new Date().toISOString(), result: response });
+        } catch (err) {
+          jobs.set(jobId, { ...jobs.get(jobId), status: 'failed', updatedAt: new Date().toISOString(), error: err.message });
+        }
+      })();
+
+      res.status(202)
+        .set('Location', `/api/jobs/${jobId}`)
+        .json({ ok: true, jobId, status: 'queued' });
+      return;
+    }
+
+    // Normalize testType (sync path)
     const normalizedTestType = normalizeTestType(testType);
     
     console.log(`[API] Running societies test: society="${societyName}", test="${normalizedTestType}", text="${testString.substring(0, 50)}..."`);
@@ -258,7 +486,204 @@ app.post('/api/societies/test-content', apiKeyAuth, async (req, res) => {
   }
 });
 
+// Batch societies test endpoint (multiple test strings)
+app.post('/api/societies/test-content-batch', apiKeyAuth, async (req, res) => {
+  const startTime = Date.now();
+  
+  try {
+    // Extract and validate request body
+    const { societyName, testType, testStrings } = req.body;
+    
+    // Validate required fields
+    if (!societyName || !testType || !testStrings) {
+      const missingFields = [];
+      if (!societyName) missingFields.push('societyName');
+      if (!testType) missingFields.push('testType');
+      if (!testStrings) missingFields.push('testStrings');
+      
+      return res.status(400).json({
+        ok: false,
+        error: `Missing required fields: ${missingFields.join(', ')}`,
+        inputs: {
+          societyName: societyName || '',
+          testType: testType || '',
+          testStrings: testStrings || [],
+        },
+        results: null,
+      });
+    }
+    
+    // Validate testStrings is an array
+    if (!Array.isArray(testStrings) || testStrings.length === 0) {
+      return res.status(400).json({
+        ok: false,
+        error: 'testStrings must be a non-empty array',
+        inputs: {
+          societyName,
+          testType,
+          testStrings: testStrings || [],
+        },
+        results: null,
+      });
+    }
+    
+    // Limit to maximum 5 test strings to prevent overload
+    if (testStrings.length > 5) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Maximum 5 test strings allowed per batch request',
+        inputs: {
+          societyName,
+          testType,
+          testStrings: testStrings.slice(0, 5),
+        },
+        results: null,
+      });
+    }
+    
+    // Normalize testType
+    const normalizedTestType = normalizeTestType(testType);
+    
+    console.log(`[API] Running batch societies test: society="${societyName}", test="${normalizedTestType}", count=${testStrings.length}`);
+    
+    // Set timeout for the batch simulation (15 minutes max)
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => {
+        reject(new Error('Batch simulation timeout: Process took longer than 15 minutes'));
+      }, 900000); // 15 minutes
+    });
+    
+    // Process each test string sequentially
+    const batchResults = [];
+    const batchErrors = [];
+    
+    for (let i = 0; i < testStrings.length; i++) {
+      const testString = testStrings[i];
+      console.log(`[API] Processing test ${i + 1}/${testStrings.length}: "${testString.substring(0, 50)}..."`);
+      
+      try {
+        // Call the automation for each test string
+        const simulationPromise = run({
+          society: societyName,
+          test: normalizedTestType,
+          text: testString,
+          runId: `api_batch_${Date.now()}_${i}`,
+        });
+        
+        const result = await Promise.race([simulationPromise, timeoutPromise]);
+        
+        // Build minimal response matching client's requested structure
+        const extras = result.result.extras || {};
+        const parsedImpact = extras.impactScore?.value ?? (result.result.plainText.match(/(\d+)\s*\/\s*100/)?.[1] ? parseInt(result.result.plainText.match(/(\d+)\s*\/\s*100/)?.[1]) : undefined);
+        const impactValueStr = (parsedImpact ?? "N/A").toString();
+        const impactRating = extras.impactScore?.rating || result.result.plainText.match(/(Very Low|Low|Medium|High|Very High|Average)/)?.[1] || "N/A";
+
+        const att = extras.attention || {};
+        const attFull = typeof att.full === 'number' ? att.full : (Number.isFinite(parseInt(att.full)) ? parseInt(att.full) : 0);
+        const attPartial = typeof att.partial === 'number' ? att.partial : (Number.isFinite(parseInt(att.partial)) ? parseInt(att.partial) : 0);
+        const attIgnore = typeof att.ignore === 'number' ? att.ignore : (Number.isFinite(parseInt(att.ignore)) ? parseInt(att.ignore) : 0);
+
+        const insights = extras.insights || result.result.plainText.match(/Insights\s+([\s\S]+?)(?:\n\n|Ask a Follow-up|Conversation|$)/)?.[1]?.trim() || "";
+
+        const summaryText = `Impact Score: ${impactValueStr}/100. Attention: Full ${attFull}%, Partial ${attPartial}%, Ignore ${attIgnore}%`;
+
+        const testResult = {
+          index: i,
+          testString: testString.substring(0, 100) + (testString.length > 100 ? '...' : ''),
+          fullTestString: testString,
+          results: {
+            impactScore: { value: impactValueStr, rating: impactRating },
+            attention: { full: attFull, partial: attPartial, ignore: attIgnore },
+            insights,
+            summaryText,
+            keyFindings: [
+              `Impact score: ${impactValueStr}/100 (${impactRating})`,
+              `Full attention: ${attFull}%`,
+              `Ignored: ${attIgnore}%`
+            ]
+          }
+        };
+        
+        batchResults.push(testResult);
+        console.log(`[API] ✅ Test ${i + 1} completed successfully`);
+        
+      } catch (error) {
+        console.error(`[API] ❌ Test ${i + 1} failed:`, error.message);
+        batchErrors.push({
+          index: i,
+          testString: testString.substring(0, 100) + (testString.length > 100 ? '...' : ''),
+          error: error.message
+        });
+      }
+    }
+    
+    const response = {
+      ok: true,
+      inputs: {
+        societyName,
+        testType: normalizedTestType,
+        testStrings: testStrings.map((ts, i) => ({
+          index: i,
+          preview: ts.substring(0, 100) + (ts.length > 100 ? '...' : ''),
+          length: ts.length
+        })),
+      },
+      results: {
+        totalTests: testStrings.length,
+        successfulTests: batchResults.length,
+        failedTests: batchErrors.length,
+        batchResults,
+        errors: batchErrors.length > 0 ? batchErrors : undefined
+      }
+    };
+    
+    const totalTime = Date.now() - startTime;
+    console.log(`[API] ✅ Batch test completed: ${batchResults.length}/${testStrings.length} successful in ${totalTime}ms`);
+    
+    res.json(response);
+    
+  } catch (error) {
+    const totalTime = Date.now() - startTime;
+    console.error(`[API] ❌ Batch Error:`, error.message);
+    
+    const errorResponse = {
+      ok: false,
+      error: error.message,
+      inputs: req.body || {},
+      results: null,
+    };
+    
+    // Return appropriate HTTP status based on error type
+    const statusCode = error.message.includes('timeout') ? 408 : 500;
+    res.status(statusCode).json(errorResponse);
+  }
+});
+
 // 404 handler
+app.get('/api/jobs/:jobId', (req, res) => {
+  const { jobId } = req.params;
+  const job = jobs.get(jobId);
+  if (!job) {
+    return res.status(404).json({ ok: false, error: `Job not found: ${jobId}` });
+  }
+
+  const payload = {
+    ok: true,
+    jobId: job.id,
+    status: job.status,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+  };
+
+  if (job.status === 'done') {
+    payload.result = job.result;
+  }
+  if (job.status === 'failed') {
+    payload.error = job.error || 'Unknown error';
+  }
+
+  res.json(payload);
+});
 app.use('*', (req, res) => {
   res.status(404).json({
     ok: false,

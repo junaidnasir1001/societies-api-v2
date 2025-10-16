@@ -189,16 +189,88 @@ export async function runSimulation(page, { society, template, inputText, simula
   // Wait extra time for modal animation
   await page.waitForTimeout(3000);
   
+  // DEBUG: List all available societies in modal
   try {
-    // Check if "Example Startup Investors" card is visible (indicates modal is open)
-    const societyCard = page.getByRole('button', { name: 'Example Startup Investors' }).first();
-    const isCardVisible = await societyCard.isVisible().catch(() => false);
+    console.error("[sim] DEBUG: Listing all available societies in modal...");
+    const availableSocieties = await page.evaluate(() => {
+      const societies = [];
+      // Look for society cards by various selectors
+      const headings = document.querySelectorAll('h1, h2, h3, h4');
+      headings.forEach(h => {
+        const text = h.textContent.trim();
+        if (text && text.length > 3 && !text.includes('Create') && !text.includes('Target')) {
+          societies.push(text);
+        }
+      });
+      return societies;
+    });
+    console.error(`[sim] DEBUG: Found ${availableSocieties.length} societies:`, availableSocieties);
+  } catch (debugErr) {
+    console.error("[sim] DEBUG: Could not list societies:", debugErr.message);
+  }
+  
+  // Declare isCardVisible outside try block so it's accessible for societySelectedInModal
+  let isCardVisible = false;
+  
+  try {
+    // Try to find and click the society card based on user's input
+    let societyCard = null;
+    let societyNameToUse = society || 'Startup Investors'; // Default fallback
+    
+    console.error(`[sim] Looking for society: "${societyNameToUse}"`);
+    
+    // Try multiple variants of the society name
+    // Note: Based on UI screenshot, society cards don't have "Example" prefix in modal
+    const societyVariants = [
+      societyNameToUse,                         // Exact name: "Mortgage Advisors UK"
+      societyNameToUse.replace('Example ', ''), // Without "Example" if user included it
+      `Example ${societyNameToUse}`,            // With "Example" prefix (fallback)
+    ];
+    
+    for (const variant of societyVariants) {
+      console.error(`[sim] Trying variant: "${variant}"`);
+      
+      // Try multiple selector strategies
+      const selectors = [
+        // Strategy 1: Direct p tag with society name (most reliable based on HTML structure)
+        () => page.locator(`p.css-9ovrqf:has-text("${variant}")`).locator('..').locator('..').locator('..'),
+        // Strategy 2: Any p tag with exact text
+        () => page.locator(`p:has-text("${variant}")`).locator('..').locator('..').locator('..'),
+        // Strategy 3: Text-based selector with parent navigation
+        () => page.locator(`text="${variant}"`).locator('xpath=ancestor::div[@role="button"]'),
+        // Strategy 4: Direct text match and navigate to clickable parent
+        () => page.locator(`text="${variant}"`).locator('..').locator('..').locator('..'),
+        // Strategy 5: Role-based selector (fallback)
+        () => page.getByRole('button', { name: variant }),
+      ];
+      
+      for (let i = 0; i < selectors.length; i++) {
+        try {
+          societyCard = selectors[i]().first();
+          const count = await societyCard.count();
+          console.error(`[sim] Strategy ${i + 1} for "${variant}": found ${count} elements`);
+          
+          if (count > 0) {
+            isCardVisible = await societyCard.isVisible().catch(() => false);
+            if (isCardVisible) {
+              console.error(`[sim] ✅ Found society card with name: "${variant}" using strategy ${i + 1}`);
+              societyNameToUse = variant;
+              break;
+            }
+          }
+        } catch (e) {
+          console.error(`[sim] Strategy ${i + 1} failed: ${e.message}`);
+        }
+      }
+      
+      if (isCardVisible) break;
+    }
     
     console.error(`[sim] Society card visible: ${isCardVisible}`);
     
     if (isCardVisible) {
       console.error("[sim] ✅ Auto-open modal detected!");
-      console.error("[sim] Clicking 'Example Startup Investors' to dismiss modal...");
+      console.error(`[sim] Clicking '${societyNameToUse}' to dismiss modal...`);
       
       // Click with force if needed
       try {
@@ -225,11 +297,17 @@ export async function runSimulation(page, { society, template, inputText, simula
         }
       }
     } else {
-      console.error("[sim] No auto-open modal found (society card not visible)");
+      console.error(`[sim] ❌ Society "${societyNameToUse}" not found in modal!`);
+      console.error("[sim] Will try to select society after modal handling...");
+      isCardVisible = false; // Mark that we need to select society later
     }
   } catch (modalErr) {
     console.error("[sim] Modal handling error:", modalErr.message);
+    isCardVisible = false; // Mark that we need to select society later
   }
+  
+  // Store whether we successfully selected society in modal
+  let societySelectedInModal = isCardVisible;
   
   // Debug: Check what's on the page after modal close
   console.error("[sim] DEBUG: Current URL:", page.url());
@@ -271,11 +349,27 @@ export async function runSimulation(page, { society, template, inputText, simula
         console.error('[sim] Checking for modal after retry...');
         await page.waitForTimeout(3000);
         
-        const societyCard = page.getByRole('button', { name: 'Example Startup Investors' }).first();
-        const isCardVisible = await societyCard.isVisible().catch(() => false);
+        // Try to find society card with the same logic
+        let societyCard = null;
+        let societyNameToUse = society || 'Startup Investors';
+        const societyVariants = [
+          societyNameToUse,
+          `Example ${societyNameToUse}`,
+          societyNameToUse.replace('Example ', ''),
+        ];
+        
+        let isCardVisible = false;
+        for (const variant of societyVariants) {
+          societyCard = page.getByRole('button', { name: variant }).first();
+          isCardVisible = await societyCard.isVisible().catch(() => false);
+          if (isCardVisible) {
+            societyNameToUse = variant;
+            break;
+          }
+        }
         
         if (isCardVisible) {
-          console.error("[sim] ✅ Modal appeared after retry!");
+          console.error(`[sim] ✅ Modal appeared after retry! Clicking '${societyNameToUse}'`);
           try {
             await societyCard.click({ timeout: 3000 });
           } catch {
@@ -283,6 +377,10 @@ export async function runSimulation(page, { society, template, inputText, simula
           }
           await page.waitForTimeout(2000);
           console.error("[sim] ✅ Modal dismissed!");
+          societySelectedInModal = true; // Update flag - society was selected in retry modal
+        } else {
+          console.error("[sim] ⚠️ Modal not found after retry, will select society later");
+          societySelectedInModal = false; // Ensure flag is false
         }
       }
     }
@@ -333,14 +431,41 @@ export async function runSimulation(page, { society, template, inputText, simula
     return false;
   };
 
-  // Society is already selected after modal dismiss, so skip this step
-  console.error("[sim] Society should be already selected from modal dismiss...");
-  
-  // If we still need to select society (commented for now):
-  // if (society) {
-  //   console.error(`[sim] Looking for society button: "${society}"`);
-  //   await workingPage.getByRole('button', { name: `Example ${society}` }).first().click();
-  // }
+  // Select society if not already selected in modal
+  if (!societySelectedInModal && society) {
+    console.error(`[sim] Society was not selected in modal, selecting now: "${society}"`);
+    
+    // Try multiple variants
+    const societyVariants = [
+      society,
+      `Example ${society}`,
+      society.replace('Example ', ''),
+    ];
+    
+    let societySelected = false;
+    for (const variant of societyVariants) {
+      try {
+        console.error(`[sim] Trying to select society variant: "${variant}"`);
+        const societyBtn = workingPage.getByRole('button', { name: variant }).first();
+        
+        if (await societyBtn.count() > 0) {
+          await societyBtn.click({ timeout: 5000 });
+          console.error(`[sim] ✅ Selected society: "${variant}"`);
+          societySelected = true;
+          break;
+        }
+      } catch (e) {
+        console.error(`[sim] Variant "${variant}" not found, trying next...`);
+        continue;
+      }
+    }
+    
+    if (!societySelected) {
+      console.error(`[sim] ⚠️ Warning: Could not select society "${society}"`);
+    }
+  } else {
+    console.error("[sim] Society already selected from modal dismiss");
+  }
   
   await workingPage.waitForTimeout(1000);
   // Click "Create new test" button - MUST CLICK to open templates modal
