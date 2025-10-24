@@ -1,5 +1,5 @@
 [build]
-  command = "npm install"
+  command = "npm install && npx playwright install chromium"
   publish = "."
 
 [build.environment]
