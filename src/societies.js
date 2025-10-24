@@ -41,40 +41,25 @@ export async function runSimulation(page, { society, template, inputText, simula
   // Step 1: Select content type
   console.error("[sim] Selecting content type...");
   
-  // Map template to content type dropdown value (using actual dropdown values)
+  // Map template to content type dropdown value
   const contentTypeMapping = {
     'Article': 'email_subject',
     'Website Content': 'email_subject', 
     'Email': 'email_subject',
     'Email Subject Line': 'email_subject',
-    'Email Subject': 'email_subject',
     'Advertisement': 'meta_ad',
     'Ad': 'meta_ad',
-    'Meta Ad': 'meta_ad',
-    'Ad headline': 'meta_ad'
+    'Meta Ad': 'meta_ad'
   };
   
   const contentTypeValue = contentTypeMapping[template] || 'email_subject';
-  console.error(`[sim] Mapping template "${template}" to content type value "${contentTypeValue}"`);
+  console.error(`[sim] Mapping template "${template}" to content type "${contentTypeValue}"`);
   
   try {
-    // Use first() to get the first combobox (content type selector)
-    const contentTypeSelector = page.locator('div').filter({ hasText: /^Content type/ }).getByRole('combobox').first();
+    const contentTypeSelector = page.locator('div').filter({ hasText: /^Content type/ }).getByRole('combobox');
     await contentTypeSelector.waitFor({ timeout: 10000, state: 'visible' });
-    
-    // Debug: Log available options
-    const options = await contentTypeSelector.locator('option').allTextContents();
-    console.error(`[sim] Available content type options: ${JSON.stringify(options)}`);
-    
-    // Try to select the option by value, with fallback to first available option
-    try {
-      await contentTypeSelector.selectOption({ value: contentTypeValue });
-      console.error(`[sim] ✅ Selected content type: ${contentTypeValue}`);
-    } catch (selectErr) {
-      console.error(`[sim] ⚠️ Could not select "${contentTypeValue}", trying first available option`);
-      await contentTypeSelector.selectOption({ index: 1 }); // Skip first option (usually placeholder)
-      console.error(`[sim] ✅ Selected first available content type option`);
-    }
+    await contentTypeSelector.selectOption(contentTypeValue);
+    console.error(`[sim] ✅ Selected content type: ${contentTypeValue}`);
   } catch (contentTypeErr) {
     console.error(`[sim] ❌ Could not select content type: ${contentTypeErr.message}`);
     throw new Error(`Could not select content type: ${contentTypeErr.message}`);
@@ -86,41 +71,29 @@ export async function runSimulation(page, { society, template, inputText, simula
   // Step 2: Select target audience
   console.error("[sim] Selecting target audience...");
   
-  // Map society name to audience dropdown value (using actual dropdown values)
+  // Map society name to audience dropdown value
   const audienceMapping = {
-    'UK National Representative': 'UK National Representative (default)',
-    'UK HR Decision-Makers': 'UK HR Decision-Makers',
-    'UK Mortgage Advisors': 'UK Mortgage Advisors', 
-    'UK Beauty Lovers': 'UK Beauty Lovers',
-    'UK Consumers': 'UK Consumers',
-    'UK Journalists': 'UK Journalists',
-    'UK Marketing Leaders': 'UK Marketing Leaders',
-    'UK Enterprise Marketing Leaders': 'UK Enterprise Marketing Leaders',
-    'Startup Investors': 'UK National Representative (default)', // Default fallback
-    'Tech Enthusiasts': 'UK National Representative (default)',
-    'Marketing Professionals': 'UK Marketing Leaders'
+    'UK National Representative': 'uk_national',
+    'UK HR Decision-Makers': 'hr',
+    'UK Mortgage Advisors': 'mortgage_advisors', 
+    'UK Beauty Lovers': 'beauty_lovers',
+    'UK Consumers': 'consumers',
+    'UK Journalists': 'journalists',
+    'UK Marketing Leaders': 'marketing_leaders',
+    'UK Enterprise Marketing Leaders': 'enterprise_marketing_leaders',
+    'Startup Investors': 'uk_national', // Default fallback
+    'Tech Enthusiasts': 'uk_national',
+    'Marketing Professionals': 'marketing_leaders'
   };
   
-  const audienceValue = audienceMapping[society] || 'UK National Representative (default)';
+  const audienceValue = audienceMapping[society] || 'uk_national';
   console.error(`[sim] Mapping society "${society}" to audience "${audienceValue}"`);
   
   try {
     const audienceSelector = page.getByRole('combobox').nth(1);
     await audienceSelector.waitFor({ timeout: 10000, state: 'visible' });
-    
-    // Debug: Log available options
-    const audienceOptions = await audienceSelector.locator('option').allTextContents();
-    console.error(`[sim] Available audience options: ${JSON.stringify(audienceOptions)}`);
-    
-    // Try to select the option, with fallback to first available option
-    try {
-      await audienceSelector.selectOption(audienceValue);
-      console.error(`[sim] ✅ Selected audience: ${audienceValue}`);
-    } catch (selectErr) {
-      console.error(`[sim] ⚠️ Could not select audience "${audienceValue}", trying first available option`);
-      await audienceSelector.selectOption({ index: 1 }); // Skip first option (usually placeholder)
-      console.error(`[sim] ✅ Selected first available audience option`);
-    }
+    await audienceSelector.selectOption(audienceValue);
+    console.error(`[sim] ✅ Selected audience: ${audienceValue}`);
   } catch (audienceErr) {
     console.error(`[sim] ❌ Could not select audience: ${audienceErr.message}`);
     throw new Error(`Could not select audience: ${audienceErr.message}`);
@@ -177,31 +150,6 @@ export async function runSimulation(page, { society, template, inputText, simula
   await page.waitForLoadState("networkidle", { timeout: 60000 }).catch(() => {});
   await page.waitForTimeout(5000);
   
-  // Wait for experiment to complete and results to be visible
-  console.error("[sim] Waiting for experiment to complete...");
-  try {
-    // Wait for the results content to appear (Winner, Impact score, etc.)
-    await page.waitForSelector('text=Winner', { timeout: 120000 });
-    console.error("[sim] ✅ Results content is visible");
-  } catch (resultsErr) {
-    console.error(`[sim] ⚠️ Results content not found: ${resultsErr.message}`);
-    // Try alternative selectors
-    try {
-      await page.waitForSelector('text=Impact score', { timeout: 30000 });
-      console.error("[sim] ✅ Impact score found as fallback");
-    } catch (fallbackErr) {
-      console.error(`[sim] ⚠️ No results selectors found: ${fallbackErr.message}`);
-    }
-  }
-  
-  // CRITICAL: Wait for animated counters to finish - this is the key fix!
-  console.error("[sim] ⏳ Waiting for animated counters to finish...");
-  await page.waitForTimeout(10000); // Wait for counters to reach final values
-  
-  // Additional wait to ensure all animations are complete
-  console.error("[sim] ⏳ Additional wait for final values...");
-  await page.waitForTimeout(5000); // Extra buffer for slow animations
-  
   // Extract results from new UI
   console.error("[sim] Extracting results from new UI...");
   
@@ -217,129 +165,69 @@ export async function runSimulation(page, { society, template, inputText, simula
   };
   
   try {
-    // Debug: Log the full page content to understand the structure
-    const fullPageText = await page.textContent('body');
-    console.error(`[sim] 🔍 Full page text (first 500 chars): ${fullPageText.substring(0, 500)}...`);
-    
-    // Debug: Get all numbers on the page to understand the structure
+    // Extract winner text
     try {
-      const allNumbers = await page.locator('span[font-size="32"]').all();
-      console.error(`[sim] 🔍 Found ${allNumbers.length} numbers with font-size="32"`);
-      for (let i = 0; i < allNumbers.length; i++) {
-        const text = await allNumbers[i].textContent();
-        console.error(`[sim] 🔍 Number ${i}: "${text}"`);
-      }
-      
-      // Debug: Get all divs with numbers to understand the structure
-      const allDivs = await page.locator('div').filter({ hasText: /\d+/ }).all();
-      console.error(`[sim] 🔍 Found ${allDivs.length} divs with numbers`);
-      for (let i = 0; i < Math.min(allDivs.length, 10); i++) {
-        const text = await allDivs[i].textContent();
-        console.error(`[sim] 🔍 Div ${i}: "${text.substring(0, 100)}..."`);
-      }
-    } catch (debugErr) {
-      console.error(`[sim] 🔍 Debug error: ${debugErr.message}`);
-    }
-    
-    // Extract winner text - try multiple methods
-    try {
-      // Method 1: Try CSS selector for winner
-      try {
-        const winnerElement = await page.locator('div.css-1cg8z8l').first();
-        if (await winnerElement.isVisible()) {
-          result.winner = await winnerElement.textContent();
-          console.error(`[sim] ✅ Extracted winner (CSS selector): ${result.winner}`);
-        } else {
-          throw new Error('CSS selector not found');
-        }
-      } catch (cssErr) {
-        // Method 2: Try alternative CSS selectors
-        try {
-          const winnerElement2 = await page.locator('div[class*="css-"]').filter({ hasText: /Winner/ }).locator('div').first();
-          if (await winnerElement2.isVisible()) {
-            result.winner = await winnerElement2.textContent();
-            console.error(`[sim] ✅ Extracted winner (alternative CSS): ${result.winner}`);
-          } else {
-            throw new Error('Alternative CSS selector not found');
-          }
-        } catch (cssErr2) {
-          // Method 3: Text-based extraction
-          const winnerMatch = fullPageText.match(/Winner([^I]*?)Impact score/i);
-          if (winnerMatch) {
-            result.winner = winnerMatch[1].trim();
-            console.error(`[sim] ✅ Extracted winner (text fallback): ${result.winner}`);
-          } else {
-            console.error(`[sim] ❌ No winner found`);
-          }
-        }
+      const winnerElement = page.locator('div').filter({ hasText: /^Winner/ }).locator('..').locator('div').nth(1);
+      if (await winnerElement.count() > 0) {
+        result.winner = await winnerElement.textContent();
+        console.error(`[sim] ✅ Extracted winner: ${result.winner}`);
       }
     } catch (winnerErr) {
       console.error(`[sim] ⚠️ Could not extract winner: ${winnerErr.message}`);
     }
     
-    // Extract impact score - use array-based extraction
+    // Extract impact score
     try {
-      const allNumbers = await page.locator('span[font-size="32"]').all();
-      if (allNumbers.length >= 3) {
-        result.impactScore.value = await allNumbers[0].textContent();
-        result.impactScore.rating = "Average";
-        console.error(`[sim] ✅ Extracted impact score: ${result.impactScore.value}`);
-      } else {
-        console.error(`[sim] ❌ Not enough numbers found for impact score`);
+      const impactElement = page.locator('div').filter({ hasText: /^\d+Winning Option$/ });
+      if (await impactElement.count() > 0) {
+        const impactText = await impactElement.textContent();
+        const scoreMatch = impactText.match(/(\d+)/);
+        if (scoreMatch) {
+          result.impactScore.value = scoreMatch[1];
+          result.impactScore.rating = "Average"; // Default rating
+          console.error(`[sim] ✅ Extracted impact score: ${result.impactScore.value}`);
+        }
       }
     } catch (impactErr) {
       console.error(`[sim] ⚠️ Could not extract impact score: ${impactErr.message}`);
     }
     
-    // Extract average score - use array-based extraction
+    // Extract average score
     try {
-      const allNumbers = await page.locator('span[font-size="32"]').all();
-      if (allNumbers.length >= 3) {
-        result.averageScore = await allNumbers[1].textContent();
-        console.error(`[sim] ✅ Extracted average score: ${result.averageScore}`);
-      } else {
-        console.error(`[sim] ❌ Not enough numbers found for average score`);
+      const averageElement = page.locator('div').filter({ hasText: /^\d+Average Score$/ });
+      if (await averageElement.count() > 0) {
+        const averageText = await averageElement.textContent();
+        const scoreMatch = averageText.match(/(\d+)/);
+        if (scoreMatch) {
+          result.averageScore = scoreMatch[1];
+          console.error(`[sim] ✅ Extracted average score: ${result.averageScore}`);
+        }
       }
     } catch (averageErr) {
       console.error(`[sim] ⚠️ Could not extract average score: ${averageErr.message}`);
     }
     
-    // Extract uplift - use array-based extraction
+    // Extract uplift
     try {
-      const allNumbers = await page.locator('span[font-size="32"]').all();
-      if (allNumbers.length >= 3) {
-        result.uplift = await allNumbers[2].textContent();
-        console.error(`[sim] ✅ Extracted uplift: ${result.uplift}`);
-      } else {
-        console.error(`[sim] ❌ Not enough numbers found for uplift`);
+      const upliftElement = page.locator('div').filter({ hasText: /^↑\d+%/ });
+      if (await upliftElement.count() > 0) {
+        const upliftText = await upliftElement.textContent();
+        const upliftMatch = upliftText.match(/↑(\d+)%/);
+        if (upliftMatch) {
+          result.uplift = upliftMatch[1];
+          console.error(`[sim] ✅ Extracted uplift: ${result.uplift}%`);
+        }
       }
     } catch (upliftErr) {
       console.error(`[sim] ⚠️ Could not extract uplift: ${upliftErr.message}`);
     }
     
-    // Extract insights text - use specific CSS selector
+    // Extract insights text
     try {
-      // Method 1: Use specific CSS selector for insights
-      const insightsElement = await page.locator('p.css-6hli0j').first();
-      if (await insightsElement.isVisible()) {
+      const insightsElement = page.locator('p, div').filter({ hasText: /engaged.*with|preferred|matched/ });
+      if (await insightsElement.count() > 0) {
         result.insights = await insightsElement.textContent();
-        console.error(`[sim] ✅ Extracted insights (CSS selector): ${result.insights.substring(0, 100)}...`);
-    } else {
-        // Method 2: Fallback to text-based extraction
-        const insightsPatterns = [
-          /(?:UK nationals|Enterprise Marketing Leaders|HR professionals).*?(?:because|responded).*?(?=\n\n|\n[A-Z]|$)/s,
-          /(?:responded|engaged|preferred).*?(?:because|offered|conveyed).*?(?=\n\n|\n[A-Z]|$)/s,
-          /(?:Compared to|The other options).*?(?=\n\n|\n[A-Z]|$)/s
-        ];
-        
-        for (const pattern of insightsPatterns) {
-          const match = fullPageText.match(pattern);
-          if (match && match[0].length > 50) {
-            result.insights = match[0].trim();
-            console.error(`[sim] ✅ Extracted insights (text fallback): ${result.insights.substring(0, 100)}...`);
-            break;
-          }
-        }
+        console.error(`[sim] ✅ Extracted insights: ${result.insights.substring(0, 100)}...`);
       }
     } catch (insightsErr) {
       console.error(`[sim] ⚠️ Could not extract insights: ${insightsErr.message}`);
@@ -351,29 +239,7 @@ export async function runSimulation(page, { society, template, inputText, simula
     // Build HTML summary
     result.html = `<div><h3>Winner: ${result.winner}</h3><p>Impact Score: ${result.impactScore.value}/100</p><p>Average Score: ${result.averageScore}</p><p>Uplift: ${result.uplift}%</p><p>Insights: ${result.insights}</p></div>`;
     
-    // Add new fields to extras for backward compatibility
-    result.extras = {
-      impactScore: result.impactScore,
-      attention: result.attention,
-      insights: result.insights,
-      winner: result.winner,
-      averageScore: result.averageScore,
-      uplift: result.uplift
-    };
-    
-    console.error(`[sim] 🔍 Extras object:`, JSON.stringify(result.extras, null, 2));
-    
-    // Also set the values directly on the result object for direct access
-    // These values are already set above, but let's ensure they're properly set
-    console.error(`[sim] 🔍 Setting result values: winner=${result.winner}, averageScore=${result.averageScore}, uplift=${result.uplift}`);
-    
     console.error("[sim] ✅ Results extracted successfully");
-    console.error(`[sim] 🔍 Final result object:`, JSON.stringify(result, null, 2));
-    
-    // Wait 5 seconds to see the results in Chrome window
-    console.error("[sim] ⏳ Waiting 5 seconds to view results in Chrome window...");
-    await page.waitForTimeout(5000);
-    console.error("[sim] ✅ Wait complete - closing browser");
     
   } catch (extractErr) {
     console.error(`[sim] ❌ Error extracting results: ${extractErr.message}`);
@@ -385,8 +251,8 @@ export async function runSimulation(page, { society, template, inputText, simula
   
   const totalTime = Date.now() - t0;
   console.error(`[sim] ✅ Simulation completed in ${totalTime}ms`);
-
-    return {
+  
+  return {
     result,
     metadata: {
       ms: totalTime,
