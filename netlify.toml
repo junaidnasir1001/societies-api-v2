@@ -6,8 +6,13 @@
   NODE_VERSION = "18"
 
 [[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/api/:splat"
+  from = "/api/societies/test-content"
+  to = "/.netlify/functions/societies"
+  status = 200
+
+[[redirects]]
+  from = "/health"
+  to = "/.netlify/functions/societies"
   status = 200
 
 [[redirects]]
