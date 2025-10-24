@@ -50,6 +50,10 @@ function normalizeTestType(testType) {
     'email subject line': 'Email Subject Line',
     'email': 'Email',
     'product proposition': 'Product Proposition',
+    // New UI content types
+    'email_subject': 'Email Subject Line',
+    'meta_ad': 'Ad headline',
+    'ad headline': 'Ad headline',
   };
   
   // Check if it's an official type (case-insensitive)
@@ -96,6 +100,8 @@ function normalizeTestType(testType) {
     'ad': 'Advertisement',
     'ads': 'Advertisement',
     'advert': 'Advertisement',
+    'meta ad': 'Advertisement',
+    'meta_ad': 'Advertisement',
     
     // Product variants
     'product': 'Product Proposition',
@@ -308,23 +314,42 @@ app.post('/api/societies/test-content', apiKeyAuth, async (req, res) => {
   const startTime = Date.now();
   
   try {
-    // Extract and validate request body
-    const { societyName, testType, testString, mode } = req.body;
+    // Extract and validate request body - support both old and new field names
+    const { 
+      // Old field names (for backward compatibility)
+      societyName, testType, testString, testStrings, mode,
+      // New field names (matching new UI)
+      contentType, subjectLines, adHeadlines, targetAudience
+    } = req.body;
+    
+    // Map new field names to old field names for internal processing
+    const finalSocietyName = targetAudience || societyName;
+    const finalTestType = contentType || testType;
+    
+    // Handle both single testString and testStrings array, plus new subjectLines/adHeadlines
+    let finalTestString = testString;
+    if (testStrings && Array.isArray(testStrings)) {
+      finalTestString = testStrings.join('\n');
+    } else if (subjectLines && Array.isArray(subjectLines)) {
+      finalTestString = subjectLines.join('\n');
+    } else if (adHeadlines && Array.isArray(adHeadlines)) {
+      finalTestString = adHeadlines.join('\n');
+    }
     
     // Validate required fields
-    if (!societyName || !testType || !testString) {
+    if (!finalSocietyName || !finalTestType || !finalTestString) {
       const missingFields = [];
-      if (!societyName) missingFields.push('societyName');
-      if (!testType) missingFields.push('testType');
-      if (!testString) missingFields.push('testString');
+      if (!finalSocietyName) missingFields.push('societyName/targetAudience');
+      if (!finalTestType) missingFields.push('testType/contentType');
+      if (!finalTestString) missingFields.push('testString/testStrings/subjectLines/adHeadlines');
       
       return res.status(400).json({
         ok: false,
         error: `Missing required fields: ${missingFields.join(', ')}`,
         inputs: {
-          societyName: societyName || '',
-          testType: testType || '',
-          testString: testString || '',
+          societyName: finalSocietyName || '',
+          testType: finalTestType || '',
+          testString: finalTestString || '',
         },
         results: null,
         screenshots: null,
@@ -333,7 +358,7 @@ app.post('/api/societies/test-content', apiKeyAuth, async (req, res) => {
     
     // Async mode: immediately return jobId and process in background
     if (mode === 'async') {
-      const normalizedTestTypeForAsync = normalizeTestType(testType);
+      const normalizedTestTypeForAsync = normalizeTestType(finalTestType);
       const jobId = generateJobId('societies');
 
       jobs.set(jobId, {
@@ -341,7 +366,7 @@ app.post('/api/societies/test-content', apiKeyAuth, async (req, res) => {
         status: 'queued',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        inputs: { societyName, testType: normalizedTestTypeForAsync, testString },
+        inputs: { societyName: finalSocietyName, testType: normalizedTestTypeForAsync, testString: finalTestString },
         result: null,
         error: null,
       });
@@ -355,9 +380,9 @@ app.post('/api/societies/test-content', apiKeyAuth, async (req, res) => {
           const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Simulation timeout: Process took longer than 10 minutes')), 600000));
 
           const simulationPromise = run({
-            society: societyName,
+            society: finalSocietyName,
             test: normalizedTestTypeForAsync,
-            text: testString,
+            text: finalTestString,
             runId: `api_async_${Date.now()}`,
           });
 
@@ -365,6 +390,13 @@ app.post('/api/societies/test-content', apiKeyAuth, async (req, res) => {
 
           // Build the same response structure as sync path
           const extras = result.result.extras || {};
+          console.error(`[API] 🔍 Extras object:`, JSON.stringify(extras, null, 2));
+          console.error(`[API] 🔍 Result object keys:`, Object.keys(result.result));
+          console.error(`[API] 🔍 Direct result values:`, {
+            winner: result.result.winner,
+            averageScore: result.result.averageScore,
+            uplift: result.result.uplift
+          });
           const parsedImpact = extras.impactScore?.value ?? (result.result.plainText.match(/(\d+)\s*\/\s*100/)?.[1] ? parseInt(result.result.plainText.match(/(\d+)\s*\/\s*100/)?.[1]) : undefined);
           const impactValueStr = (parsedImpact ?? 'N/A').toString();
           const impactRating = extras.impactScore?.rating || result.result.plainText.match(/(Very Low|Low|Medium|High|Very High|Average)/)?.[1] || 'N/A';
@@ -380,12 +412,16 @@ app.post('/api/societies/test-content', apiKeyAuth, async (req, res) => {
 
           const response = {
             ok: true,
-            inputs: { societyName, testType: normalizedTestTypeForAsync, testString },
+            inputs: { societyName, testType: normalizedTestTypeForAsync, testString: finalTestString },
             results: {
               impactScore: { value: impactValueStr, rating: impactRating },
               attention: { full: attFull, partial: attPartial, ignore: attIgnore },
               insights,
               summaryText,
+              // New UI fields - use extras values directly with fallbacks
+              winner: extras.winner || result.result.winner || "N/A",
+              averageScore: extras.averageScore || result.result.averageScore || "N/A", 
+              uplift: extras.uplift || result.result.uplift || "N/A",
               keyFindings: [
                 `Impact score: ${impactValueStr}/100 (${impactRating})`,
                 `Full attention: ${attFull}%`,
@@ -407,9 +443,9 @@ app.post('/api/societies/test-content', apiKeyAuth, async (req, res) => {
     }
 
     // Normalize testType (sync path)
-    const normalizedTestType = normalizeTestType(testType);
+    const normalizedTestType = normalizeTestType(finalTestType);
     
-    console.log(`[API] Running societies test: society="${societyName}", test="${normalizedTestType}", text="${testString.substring(0, 50)}..."`);
+    console.log(`[API] Running societies test: society="${finalSocietyName}", test="${normalizedTestType}", text="${finalTestString.substring(0, 50)}..."`);
     
     // Set timeout for the simulation (10 minutes max)
     const timeoutPromise = new Promise((_, reject) => {
@@ -420,9 +456,9 @@ app.post('/api/societies/test-content', apiKeyAuth, async (req, res) => {
     
     // Call the automation with timeout
     const simulationPromise = run({
-      society: societyName,
+      society: finalSocietyName,
       test: normalizedTestType,
-      text: testString,
+      text: finalTestString,
       runId: `api_${Date.now()}`,
     });
     
@@ -448,13 +484,17 @@ app.post('/api/societies/test-content', apiKeyAuth, async (req, res) => {
       inputs: {
         societyName,
         testType: normalizedTestType,
-        testString,
+        testString: finalTestString,
       },
       results: {
         impactScore: { value: impactValueStr, rating: impactRating },
         attention: { full: attFull, partial: attPartial, ignore: attIgnore },
         insights,
         summaryText,
+        // New UI fields - use extras values directly with fallbacks
+        winner: extras.winner || result.result.winner || result.winner || "N/A",
+        averageScore: extras.averageScore || result.result.averageScore || result.averageScore || "N/A", 
+        uplift: extras.uplift || result.result.uplift || result.uplift || "N/A",
         keyFindings: [
           `Impact score: ${impactValueStr}/100 (${impactRating})`,
           `Full attention: ${attFull}%`,

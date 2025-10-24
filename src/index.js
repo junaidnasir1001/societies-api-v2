@@ -24,8 +24,12 @@ const outputSchema = {
           properties: {
             impactScore: { type: "object" },
             attention: { type: "object" },
-            insights: { type: "string" }
-          }
+            insights: { type: "string" },
+            winner: { type: "string" },
+            averageScore: { type: "string" },
+            uplift: { type: "string" }
+          },
+          additionalProperties: true
         }
       }
     },
@@ -79,6 +83,27 @@ export async function run({
     timingsMs.total = Date.now() - t0;
 
     // Restructure output to match Dan's requirements
+    const extras = { ...(sim.result.extras || {}) };
+
+    if (!extras.impactScore && sim.result.impactScore) {
+      extras.impactScore = sim.result.impactScore;
+    }
+    if (!extras.attention && sim.result.attention) {
+      extras.attention = sim.result.attention;
+    }
+    if (!extras.insights && sim.result.insights) {
+      extras.insights = sim.result.insights;
+    }
+    if (!extras.winner && sim.result.winner) {
+      extras.winner = sim.result.winner;
+    }
+    if (!extras.averageScore && sim.result.averageScore) {
+      extras.averageScore = sim.result.averageScore;
+    }
+    if (!extras.uplift && sim.result.uplift) {
+      extras.uplift = sim.result.uplift;
+    }
+
     const out = {
       society,
       test,
@@ -86,11 +111,7 @@ export async function run({
       result: {
         plainText: sim.result.plainText,
         html: sim.result.html,
-        extras: {
-          impactScore: sim.result.impactScore,
-          attention: sim.result.attention,
-          insights: sim.result.insights
-        }
+        extras
       },
       metadata: {
         timingsMs,
@@ -121,4 +142,3 @@ export async function run({
     console.error(`[done] mode=${mode} totalMs=${timingsMs.total}`);
   }
 }
-

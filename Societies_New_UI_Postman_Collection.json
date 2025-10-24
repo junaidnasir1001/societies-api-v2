@@ -1,0 +1,655 @@
+{
+  "info": {
+    "name": "Societies.io New UI Testing",
+    "description": "Postman collection for testing the updated Societies.io automation with new UI",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3001",
+      "type": "string"
+    },
+    {
+      "key": "api_key",
+      "value": "your_api_key_here",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/health",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "health"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "API Info",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/info",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "info"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Email Subject Lines - Single String (Backward Compatible)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"contentType\": \"Email subject\",\n  \"subjectLines\": [\n    \"Get 50% off today!\",\n    \"Limited time offer\",\n    \"Save big this weekend\"\n  ],\n  \"targetAudience\": \"UK Marketing Leaders\",\n  \"mode\": \"async\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/societies/test-content",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "societies",
+            "test-content"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Email Subject Lines - Multiple Strings (New Format)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"contentType\": \"Email subject\",\n  \"subjectLines\": [\n    \"Your order is ready for pickup\",\n    \"Don't miss out on this deal\",\n    \"Exclusive offer just for you\",\n    \"Special discount available now\"\n  ],\n  \"targetAudience\": \"UK Consumers\",\n  \"mode\": \"async\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/societies/test-content",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "societies",
+            "test-content"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Meta Ad Headlines - Multiple Strings",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"contentType\": \"Ad headline\",\n  \"subjectLines\": [\n    \"Transform your business today\",\n    \"Unlock your potential\",\n    \"Join thousands of successful entrepreneurs\",\n    \"Boost your ROI by 300%\"\n  ],\n  \"targetAudience\": \"UK Enterprise Marketing Leaders\",\n  \"mode\": \"async\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/societies/test-content",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "societies",
+            "test-content"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "UK HR Decision-Makers Audience",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"contentType\": \"Email subject\",\n  \"subjectLines\": [\n    \"New HR software solution\",\n    \"Streamline your processes\",\n    \"Reduce admin time by 50%\"\n  ],\n  \"targetAudience\": \"UK HR Decision-Makers\",\n  \"mode\": \"async\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/societies/test-content",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "societies",
+            "test-content"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "UK Mortgage Advisors Audience",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"contentType\": \"Ad headline\",\n  \"subjectLines\": [\n    \"Mortgage rates dropping\",\n    \"Best deals available now\",\n    \"Lock in your rate today\"\n  ],\n  \"targetAudience\": \"UK Mortgage Advisors\",\n  \"mode\": \"async\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/societies/test-content",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "societies",
+            "test-content"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "UK Beauty Lovers Audience",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"contentType\": \"Email subject\",\n  \"subjectLines\": [\n    \"New beauty collection\",\n    \"Limited edition products\",\n    \"Free shipping on orders over \u00a350\"\n  ],\n  \"targetAudience\": \"UK Beauty Lovers\",\n  \"mode\": \"async\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/societies/test-content",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "societies",
+            "test-content"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Check Job Status",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/jobs/{{jobId}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "jobs",
+            "{{jobId}}"
+          ]
+        }
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const jsonData = pm.response.json();",
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Job payload has expected fields', function () {",
+              "    pm.expect(jsonData).to.have.property('ok');",
+              "    pm.expect(jsonData).to.have.property('status');",
+              "    pm.expect(jsonData).to.have.property('jobId');",
+              "});",
+              "",
+              "if (jsonData.status === 'done' && jsonData.result && jsonData.result.results) {",
+              "    pm.test('New UI fields are populated', function () {",
+              "        const results = jsonData.result.results;",
+              "        pm.expect(results).to.have.property('winner');",
+              "        pm.expect(results.winner).to.not.eql('N/A');",
+              "        pm.expect(results).to.have.property('averageScore');",
+              "        pm.expect(results.averageScore).to.not.eql('N/A');",
+              "        pm.expect(results).to.have.property('uplift');",
+              "        pm.expect(results.uplift).to.not.eql('N/A');",
+              "    });",
+              "} else {",
+              "    pm.test('Job is still processing or failed', function () {",
+              "        pm.expect(['queued', 'running', 'failed']).to.include(jsonData.status);",
+              "    });",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Maximum Test Strings - 10 Lines",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"contentType\": \"Ad headline\",\n  \"subjectLines\": [\n    \"Headline 1 - Transform your business\",\n    \"Headline 2 - Unlock your potential\",\n    \"Headline 3 - Join successful entrepreneurs\",\n    \"Headline 4 - Boost your ROI by 300%\",\n    \"Headline 5 - Proven strategies that work\",\n    \"Headline 6 - Increase conversions instantly\",\n    \"Headline 7 - Scale your business fast\",\n    \"Headline 8 - Expert guidance available\",\n    \"Headline 9 - Limited time offer\",\n    \"Headline 10 - Don't miss out\"\n  ],\n  \"targetAudience\": \"UK Consumers\",\n  \"mode\": \"async\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/societies/test-content",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "societies",
+            "test-content"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Error Test - Invalid API Key",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "X-API-Key",
+            "value": "invalid_key",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"contentType\": \"Email subject\",\n  \"subjectLines\": [\n    \"Test subject\"\n  ],\n  \"targetAudience\": \"UK Marketing Leaders\",\n  \"mode\": \"async\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/societies/test-content",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "societies",
+            "test-content"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Error Test - Missing Required Fields",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"contentType\": \"Email subject\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/societies/test-content",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "societies",
+            "test-content"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "UK Marketing Leaders Audience",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"contentType\": \"Email subject\",\n  \"subjectLines\": [\n    \"Boost your marketing ROI\",\n    \"Increase conversion rates\",\n    \"Drive more sales\"\n  ],\n  \"targetAudience\": \"UK Marketing Leaders\",\n  \"mode\": \"async\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/societies/test-content",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "societies",
+            "test-content"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "UK Enterprise Marketing Leaders Audience",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"contentType\": \"Ad headline\",\n  \"subjectLines\": [\n    \"Enterprise solutions that scale\",\n    \"ROI-focused strategies\",\n    \"Proven results for large organizations\"\n  ],\n  \"targetAudience\": \"UK Enterprise Marketing Leaders\",\n  \"mode\": \"async\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/societies/test-content",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "societies",
+            "test-content"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "UK Consumers Audience",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"contentType\": \"Email subject\",\n  \"subjectLines\": [\n    \"Special offer just for you\",\n    \"Limited time deal\",\n    \"Save money today\"\n  ],\n  \"targetAudience\": \"UK Consumers\",\n  \"mode\": \"async\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/societies/test-content",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "societies",
+            "test-content"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Error Test - Invalid Job ID",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{api_key}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/jobs/invalid_job_id",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "jobs",
+            "invalid_job_id"
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Store jobId in environment for status checking",
+          "if (pm.response && pm.response.code === 200) {",
+          "    const response = pm.response.json();",
+          "    if (response.jobId) {",
+          "        pm.environment.set('lastJobId', response.jobId);",
+          "    }",
+          "}"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.test('Status code is 200', function () {",
+          "    pm.response.to.have.status(200);",
+          "});",
+          "",
+          "pm.test('Response has jobId', function () {",
+          "    const jsonData = pm.response.json();",
+          "    pm.expect(jsonData).to.have.property('jobId');",
+          "    pm.expect(jsonData.jobId).to.be.a('string');",
+          "});",
+          "",
+          "pm.test('Response indicates success', function () {",
+          "    const jsonData = pm.response.json();",
+          "    pm.expect(jsonData.success).to.be.true;",
+          "});"
+        ]
+      }
+    }
+  ]
+}

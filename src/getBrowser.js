@@ -17,7 +17,7 @@ export async function getBrowser() {
 
   // One real Chrome profile shared by CLI & Claude Desktop
   const context = await chromium.launchPersistentContext(USER_DATA_DIR, {
-    headless: true,                    // keep visible; avoids Google bot flags
+    headless: false,                  // headful mode to see automation in action
     viewport: { width: 1280, height: 800 },
     args: [
       "--disable-blink-features=AutomationControlled",

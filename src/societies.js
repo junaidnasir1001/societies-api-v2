@@ -13,9 +13,9 @@ async function waitStable(page, panelSel, quietMs = 800, timeout = 30000) {
   }, panelSel, quietMs, { timeout });
 }
 
-export async function runSimulation(page, { society, template, inputText, simulateButtonText = "Simulate", email, password }) {
+export async function runSimulation(page, { society, template, inputText, simulateButtonText = "Run experiment", email, password }) {
   const t0 = Date.now();
-  console.error("[sim] goto app.societies.io (direct app URL)");
+  console.error("[sim] goto boldspace.societies.io/experiments/new (new UI)");
   
   // Set overall timeout to prevent hanging (10 minutes max)
   const overallTimeout = setTimeout(() => {
@@ -24,742 +24,382 @@ export async function runSimulation(page, { society, template, inputText, simula
   }, 600000);
   
   try {
-    // Go directly to app URL
-    await page.goto("https://app.societies.io", { waitUntil: "domcontentloaded", timeout: 90000 });
-  let workingPage = page;
+    // Go directly to new UI
+    await page.goto("https://boldspace.societies.io/experiments/new", { waitUntil: "domcontentloaded", timeout: 90000 });
   
   console.error("[sim] Waiting for page to load...");
   await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {});
   
-  // Check if we're already logged in by looking for app elements
-  console.error("[sim] Checking if already logged in...");
-  try {
-    // Look for elements that indicate we're already in the app
-    const appElements = await page.locator('#create-new-test-button, [data-testid="create-new-test"], button:has-text("Create New Test")').count();
-    if (appElements > 0) {
-      console.error("[sim] ✅ Already logged in - found app elements!");
-      await page.waitForTimeout(2000);
-    } else {
-      console.error("[sim] Not logged in, checking for SSO button...");
-      
-      // Check if we need SSO
-      const ssoBtn = page.getByRole('button', { name: 'Continue with Google' });
-      if (await ssoBtn.count() > 0) {
-        console.error("[sim] Clicking 'Continue with Google'...");
-        await ssoBtn.click({ timeout: 10000 });
-        console.error("[sim] SSO clicked, waiting for Google login page...");
-        
-        // Wait for Google login page
-        await page.waitForLoadState("domcontentloaded", { timeout: 30000 });
-        
-        // Check if Google login is needed (might already be logged in)
-        console.error("[sim] Checking if Google login is required...");
-        const emailInput = page.getByRole('textbox', { name: /email or phone/i });
-      
-      if (await emailInput.count() > 0 && email && password) {
-        console.error("[sim] Google login required, filling credentials...");
-        
-        // Fill email with more robust approach
-        try {
-          await emailInput.waitFor({ timeout: 10000, state: 'visible' });
-          await emailInput.clear();
-          await emailInput.fill(email, { timeout: 10000 });
-          console.error(`[sim] ✅ Email filled: ${email}`);
-          
-          // Wait a bit for the field to register the input
-          await page.waitForTimeout(1000);
-          
-          // Click Next button
-          const nextBtn = page.getByRole('button', { name: 'Next' });
-          await nextBtn.waitFor({ timeout: 10000, state: 'visible' });
-          await nextBtn.click({ timeout: 10000 });
-          console.error("[sim] ✅ Next button clicked");
-        } catch (emailErr) {
-          console.error(`[sim] ❌ Email filling failed: ${emailErr.message}`);
-          // Try alternative approach
-          try {
-            await emailInput.click();
-            await page.waitForTimeout(500);
-            await emailInput.fill(email);
-            await page.waitForTimeout(1000);
-            await page.keyboard.press('Enter');
-            console.error("[sim] ✅ Email filled with alternative method");
-          } catch (altErr) {
-            console.error(`[sim] ❌ Alternative email method failed: ${altErr.message}`);
-            throw new Error(`Could not fill email field: ${emailErr.message}`);
-          }
-        }
-        
-        // Fill password with more robust approach
-        await page.waitForTimeout(3000); // Wait longer for password page to load
-        
-        try {
-          const passwordInput = page.getByRole('textbox', { name: /enter your password/i });
-          await passwordInput.waitFor({ timeout: 30000, state: 'visible' });
-          await passwordInput.clear();
-          await passwordInput.fill(password, { timeout: 10000 });
-          console.error("[sim] ✅ Password filled");
-          
-          // Wait a bit for the field to register the input
-          await page.waitForTimeout(1000);
-          
-          // Click Next button
-          const nextBtn = page.getByRole('button', { name: 'Next' });
-          await nextBtn.waitFor({ timeout: 10000, state: 'visible' });
-          await nextBtn.click({ timeout: 10000 });
-          console.error("[sim] ✅ Password Next button clicked");
-        } catch (passwordErr) {
-          console.error(`[sim] ❌ Password filling failed: ${passwordErr.message}`);
-          // Try alternative approach
-          try {
-            const passwordInput = page.locator('input[type="password"]');
-            await passwordInput.waitFor({ timeout: 30000, state: 'visible' });
-            await passwordInput.fill(password);
-            await page.waitForTimeout(1000);
-            await page.keyboard.press('Enter');
-            console.error("[sim] ✅ Password filled with alternative method");
-          } catch (altErr) {
-            console.error(`[sim] ❌ Alternative password method failed: ${altErr.message}`);
-            throw new Error(`Could not fill password field: ${passwordErr.message}`);
-          }
-        }
-        
-        console.error("[sim] Google login submitted, waiting for redirect...");
-        await page.waitForLoadState("domcontentloaded", { timeout: 30000 });
-        
-        // Wait for Google's redirect chain to complete
-        await page.waitForTimeout(5000);
-        
-        // Handle consent screen if present
-        console.error("[sim] Checking for Google consent screen...");
-        await page.waitForTimeout(2000);
-        try {
-          const continueBtn = page.getByRole('button', { name: /continue|allow|accept/i });
-          if (await continueBtn.count() > 0) {
-            console.error("[sim] Clicking consent Continue button...");
-            await continueBtn.first().click({ timeout: 10000 });
-            await page.waitForLoadState("networkidle", { timeout: 60000 });
-          }
-        } catch (consentErr) {
-          console.error("[sim] No consent screen or already consented");
-        }
-        
-        // Final wait for app to load
-        await page.waitForLoadState("networkidle", { timeout: 60000 }).catch(() => {});
-        
-        // If still on Google accounts page (SetSID, etc), wait for final redirect
-        if (page.url().includes('accounts.google.com')) {
-          console.error("[sim] Still on Google accounts, waiting for final redirect...");
-          try {
-            await page.waitForURL('https://app.societies.io/**', { timeout: 30000 });
-            console.error("[sim] ✅ Successfully redirected to app");
-          } catch (redirectErr) {
-            console.error(`[sim] ❌ Redirect timeout: ${redirectErr.message}`);
-            console.error("[sim] Current URL:", page.url());
-            // Try to navigate back to app manually
-            try {
-              await page.goto('https://app.societies.io', { waitUntil: 'domcontentloaded', timeout: 30000 });
-              console.error("[sim] ✅ Manual navigation to app successful");
-            } catch (navErr) {
-              console.error(`[sim] ❌ Manual navigation failed: ${navErr.message}`);
-              throw new Error(`Google login redirect failed: ${redirectErr.message}`);
-            }
-          }
-          await page.waitForTimeout(3000);
-        }
-        } else {
-          console.error("[sim] Already logged into Google or no credentials provided");
-          await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {});
-        }
-      } else {
-        console.error("[sim] No SSO button, already logged in");
-      }
-    }
-  } catch (ssoErr) {
-    console.error("[sim] SSO/login check done:", ssoErr.message);
-  }
-  
-  // Wait a bit for app to fully load
-  console.error("[sim] Waiting for app to load...");
-  await page.waitForTimeout(5000);
-  
-  // Handle auto-open modal (Personal Societies + Target Societies) - FROM SCREENSHOT
-  console.error("[sim] Checking for auto-open societies modal...");
-  
-  // Wait extra time for modal animation
+  // Wait for form to be ready
   await page.waitForTimeout(3000);
   
-  // DEBUG: List all available societies in modal
+  console.error("[sim] ✅ Successfully on new UI - no Google sign-in required");
+  
+  // Now proceed with the new UI flow
+  console.error("[sim] Starting new UI simulation process...");
+  
+  // Step 1: Select content type
+  console.error("[sim] Selecting content type...");
+  
+  // Map template to content type dropdown value (using actual dropdown values)
+  const contentTypeMapping = {
+    'Article': 'email_subject',
+    'Website Content': 'email_subject', 
+    'Email': 'email_subject',
+    'Email Subject Line': 'email_subject',
+    'Email Subject': 'email_subject',
+    'Advertisement': 'meta_ad',
+    'Ad': 'meta_ad',
+    'Meta Ad': 'meta_ad',
+    'Ad headline': 'meta_ad'
+  };
+  
+  const contentTypeValue = contentTypeMapping[template] || 'email_subject';
+  console.error(`[sim] Mapping template "${template}" to content type value "${contentTypeValue}"`);
+  
   try {
-    console.error("[sim] DEBUG: Listing all available societies in modal...");
-    const availableSocieties = await page.evaluate(() => {
-      const societies = [];
-      // Look for society cards by various selectors
-      const headings = document.querySelectorAll('h1, h2, h3, h4');
-      headings.forEach(h => {
-        const text = h.textContent.trim();
-        if (text && text.length > 3 && !text.includes('Create') && !text.includes('Target')) {
-          societies.push(text);
-        }
-      });
-      return societies;
-    });
-    console.error(`[sim] DEBUG: Found ${availableSocieties.length} societies:`, availableSocieties);
-  } catch (debugErr) {
-    console.error("[sim] DEBUG: Could not list societies:", debugErr.message);
+    // Use first() to get the first combobox (content type selector)
+    const contentTypeSelector = page.locator('div').filter({ hasText: /^Content type/ }).getByRole('combobox').first();
+    await contentTypeSelector.waitFor({ timeout: 10000, state: 'visible' });
+    
+    // Debug: Log available options
+    const options = await contentTypeSelector.locator('option').allTextContents();
+    console.error(`[sim] Available content type options: ${JSON.stringify(options)}`);
+    
+    // Try to select the option by value, with fallback to first available option
+    try {
+      await contentTypeSelector.selectOption({ value: contentTypeValue });
+      console.error(`[sim] ✅ Selected content type: ${contentTypeValue}`);
+    } catch (selectErr) {
+      console.error(`[sim] ⚠️ Could not select "${contentTypeValue}", trying first available option`);
+      await contentTypeSelector.selectOption({ index: 1 }); // Skip first option (usually placeholder)
+      console.error(`[sim] ✅ Selected first available content type option`);
+    }
+  } catch (contentTypeErr) {
+    console.error(`[sim] ❌ Could not select content type: ${contentTypeErr.message}`);
+    throw new Error(`Could not select content type: ${contentTypeErr.message}`);
   }
   
-  // Declare isCardVisible outside try block so it's accessible for societySelectedInModal
-  let isCardVisible = false;
+  // Wait for content type selection to take effect
+  await page.waitForTimeout(2000);
+  
+  // Step 2: Select target audience
+  console.error("[sim] Selecting target audience...");
+  
+  // Map society name to audience dropdown value (using actual dropdown values)
+  const audienceMapping = {
+    'UK National Representative': 'UK National Representative (default)',
+    'UK HR Decision-Makers': 'UK HR Decision-Makers',
+    'UK Mortgage Advisors': 'UK Mortgage Advisors', 
+    'UK Beauty Lovers': 'UK Beauty Lovers',
+    'UK Consumers': 'UK Consumers',
+    'UK Journalists': 'UK Journalists',
+    'UK Marketing Leaders': 'UK Marketing Leaders',
+    'UK Enterprise Marketing Leaders': 'UK Enterprise Marketing Leaders',
+    'Startup Investors': 'UK National Representative (default)', // Default fallback
+    'Tech Enthusiasts': 'UK National Representative (default)',
+    'Marketing Professionals': 'UK Marketing Leaders'
+  };
+  
+  const audienceValue = audienceMapping[society] || 'UK National Representative (default)';
+  console.error(`[sim] Mapping society "${society}" to audience "${audienceValue}"`);
   
   try {
-    // Try to find and click the society card based on user's input
-    let societyCard = null;
-    let societyNameToUse = society || 'Startup Investors'; // Default fallback
+    const audienceSelector = page.getByRole('combobox').nth(1);
+    await audienceSelector.waitFor({ timeout: 10000, state: 'visible' });
     
-    console.error(`[sim] Looking for society: "${societyNameToUse}"`);
+    // Debug: Log available options
+    const audienceOptions = await audienceSelector.locator('option').allTextContents();
+    console.error(`[sim] Available audience options: ${JSON.stringify(audienceOptions)}`);
     
-    // Try multiple variants of the society name
-    // Note: Based on UI screenshot, society cards don't have "Example" prefix in modal
-    const societyVariants = [
-      societyNameToUse,                         // Exact name: "Mortgage Advisors UK"
-      societyNameToUse.replace('Example ', ''), // Without "Example" if user included it
-      `Example ${societyNameToUse}`,            // With "Example" prefix (fallback)
-    ];
+    // Try to select the option, with fallback to first available option
+    try {
+      await audienceSelector.selectOption(audienceValue);
+      console.error(`[sim] ✅ Selected audience: ${audienceValue}`);
+    } catch (selectErr) {
+      console.error(`[sim] ⚠️ Could not select audience "${audienceValue}", trying first available option`);
+      await audienceSelector.selectOption({ index: 1 }); // Skip first option (usually placeholder)
+      console.error(`[sim] ✅ Selected first available audience option`);
+    }
+  } catch (audienceErr) {
+    console.error(`[sim] ❌ Could not select audience: ${audienceErr.message}`);
+    throw new Error(`Could not select audience: ${audienceErr.message}`);
+  }
+  
+  // Wait for audience selection to take effect
+  await page.waitForTimeout(2000);
+  
+  // Step 3: Fill subject lines/headlines
+  console.error("[sim] Filling subject lines...");
+  
+  try {
+    const textareaSelector = page.getByRole('textbox', { name: 'Add up to 10' });
+    await textareaSelector.waitFor({ timeout: 10000, state: 'visible' });
+    await textareaSelector.clear();
+    await textareaSelector.fill(inputText);
+    console.error(`[sim] ✅ Filled subject lines: ${inputText}`);
+  } catch (textareaErr) {
+    console.error(`[sim] ❌ Could not fill subject lines: ${textareaErr.message}`);
+    throw new Error(`Could not fill subject lines: ${textareaErr.message}`);
+  }
+  
+  // Wait for input to be processed
+  await page.waitForTimeout(1000);
+  
+  // Step 4: Click Run experiment
+  console.error("[sim] Clicking Run experiment...");
+  
+  try {
+    const runButton = page.getByRole('button', { name: 'Run experiment' });
+    await runButton.waitFor({ timeout: 10000, state: 'visible' });
+    await runButton.click();
+    console.error("[sim] ✅ Clicked Run experiment");
+  } catch (buttonErr) {
+    console.error(`[sim] ❌ Could not click Run experiment: ${buttonErr.message}`);
+    throw new Error(`Could not click Run experiment: ${buttonErr.message}`);
+  }
+  
+  // Wait for experiment to start and redirect to results
+  console.error("[sim] Waiting for experiment to start...");
+  await page.waitForTimeout(5000);
+  
+  // Wait for redirect to results page
+  console.error("[sim] Waiting for redirect to results page...");
+  try {
+    await page.waitForURL(/boldspace\.societies\.io\/experiments\/.*/, { timeout: 60000 });
+    console.error("[sim] ✅ Redirected to results page");
+  } catch (redirectErr) {
+    console.error(`[sim] ⚠️ No redirect detected, checking current URL: ${page.url()}`);
+  }
+  
+  // Wait for results to load
+  console.error("[sim] Waiting for results to load...");
+  await page.waitForLoadState("networkidle", { timeout: 60000 }).catch(() => {});
+  await page.waitForTimeout(5000);
+  
+  // Wait for experiment to complete and results to be visible
+  console.error("[sim] Waiting for experiment to complete...");
+  try {
+    // Wait for the results content to appear (Winner, Impact score, etc.)
+    await page.waitForSelector('text=Winner', { timeout: 120000 });
+    console.error("[sim] ✅ Results content is visible");
+  } catch (resultsErr) {
+    console.error(`[sim] ⚠️ Results content not found: ${resultsErr.message}`);
+    // Try alternative selectors
+    try {
+      await page.waitForSelector('text=Impact score', { timeout: 30000 });
+      console.error("[sim] ✅ Impact score found as fallback");
+    } catch (fallbackErr) {
+      console.error(`[sim] ⚠️ No results selectors found: ${fallbackErr.message}`);
+    }
+  }
+  
+  // CRITICAL: Wait for animated counters to finish - this is the key fix!
+  console.error("[sim] ⏳ Waiting for animated counters to finish...");
+  await page.waitForTimeout(10000); // Wait for counters to reach final values
+  
+  // Additional wait to ensure all animations are complete
+  console.error("[sim] ⏳ Additional wait for final values...");
+  await page.waitForTimeout(5000); // Extra buffer for slow animations
+  
+  // Extract results from new UI
+  console.error("[sim] Extracting results from new UI...");
+  
+  let result = {
+    plainText: "",
+    html: "",
+    impactScore: { value: "N/A", rating: "N/A" },
+    attention: { full: 0, partial: 0, ignore: 0 },
+    insights: "",
+    winner: "",
+    averageScore: "N/A",
+    uplift: "N/A"
+  };
+  
+  try {
+    // Debug: Log the full page content to understand the structure
+    const fullPageText = await page.textContent('body');
+    console.error(`[sim] 🔍 Full page text (first 500 chars): ${fullPageText.substring(0, 500)}...`);
     
-    for (const variant of societyVariants) {
-      console.error(`[sim] Trying variant: "${variant}"`);
-      
-      // Try multiple selector strategies
-      const selectors = [
-        // Strategy 1: Direct p tag with society name (most reliable based on HTML structure)
-        () => page.locator(`p.css-9ovrqf:has-text("${variant}")`).locator('..').locator('..').locator('..'),
-        // Strategy 2: Any p tag with exact text
-        () => page.locator(`p:has-text("${variant}")`).locator('..').locator('..').locator('..'),
-        // Strategy 3: Text-based selector with parent navigation
-        () => page.locator(`text="${variant}"`).locator('xpath=ancestor::div[@role="button"]'),
-        // Strategy 4: Direct text match and navigate to clickable parent
-        () => page.locator(`text="${variant}"`).locator('..').locator('..').locator('..'),
-        // Strategy 5: Role-based selector (fallback)
-        () => page.getByRole('button', { name: variant }),
-      ];
-      
-      for (let i = 0; i < selectors.length; i++) {
-        try {
-          societyCard = selectors[i]().first();
-          const count = await societyCard.count();
-          console.error(`[sim] Strategy ${i + 1} for "${variant}": found ${count} elements`);
-          
-          if (count > 0) {
-            isCardVisible = await societyCard.isVisible().catch(() => false);
-            if (isCardVisible) {
-              console.error(`[sim] ✅ Found society card with name: "${variant}" using strategy ${i + 1}`);
-              societyNameToUse = variant;
-              break;
-            }
-          }
-        } catch (e) {
-          console.error(`[sim] Strategy ${i + 1} failed: ${e.message}`);
-        }
+    // Debug: Get all numbers on the page to understand the structure
+    try {
+      const allNumbers = await page.locator('span[font-size="32"]').all();
+      console.error(`[sim] 🔍 Found ${allNumbers.length} numbers with font-size="32"`);
+      for (let i = 0; i < allNumbers.length; i++) {
+        const text = await allNumbers[i].textContent();
+        console.error(`[sim] 🔍 Number ${i}: "${text}"`);
       }
       
-      if (isCardVisible) break;
+      // Debug: Get all divs with numbers to understand the structure
+      const allDivs = await page.locator('div').filter({ hasText: /\d+/ }).all();
+      console.error(`[sim] 🔍 Found ${allDivs.length} divs with numbers`);
+      for (let i = 0; i < Math.min(allDivs.length, 10); i++) {
+        const text = await allDivs[i].textContent();
+        console.error(`[sim] 🔍 Div ${i}: "${text.substring(0, 100)}..."`);
+      }
+    } catch (debugErr) {
+      console.error(`[sim] 🔍 Debug error: ${debugErr.message}`);
     }
     
-    console.error(`[sim] Society card visible: ${isCardVisible}`);
-    
-    if (isCardVisible) {
-      console.error("[sim] ✅ Auto-open modal detected!");
-      console.error(`[sim] Clicking '${societyNameToUse}' to dismiss modal...`);
-      
-      // Click with force if needed
+    // Extract winner text - try multiple methods
+    try {
+      // Method 1: Try CSS selector for winner
       try {
-        await societyCard.click({ timeout: 3000 });
-        console.error("[sim] Clicked on society card (normal)");
-      } catch (clickErr) {
-        await societyCard.click({ force: true, timeout: 3000 });
-        console.error("[sim] Force clicked on society card");
-      }
-      
-      // Wait for modal to close
-      try {
-        await page.waitForTimeout(2000);
-        console.error("[sim] ✅ Modal dismissed successfully!");
-      } catch (modalErr) {
-        console.error(`[sim] ⚠️ Modal timeout error (page might be closed): ${modalErr.message}`);
-        // Check if page is still valid
+        const winnerElement = await page.locator('div.css-1cg8z8l').first();
+        if (await winnerElement.isVisible()) {
+          result.winner = await winnerElement.textContent();
+          console.error(`[sim] ✅ Extracted winner (CSS selector): ${result.winner}`);
+        } else {
+          throw new Error('CSS selector not found');
+        }
+      } catch (cssErr) {
+        // Method 2: Try alternative CSS selectors
         try {
-          await page.url();
-          console.error("[sim] ✅ Page is still valid, continuing...");
-        } catch (pageErr) {
-          console.error(`[sim] ❌ Page is closed: ${pageErr.message}`);
-          throw new Error(`Page was closed during modal handling: ${pageErr.message}`);
+          const winnerElement2 = await page.locator('div[class*="css-"]').filter({ hasText: /Winner/ }).locator('div').first();
+          if (await winnerElement2.isVisible()) {
+            result.winner = await winnerElement2.textContent();
+            console.error(`[sim] ✅ Extracted winner (alternative CSS): ${result.winner}`);
+          } else {
+            throw new Error('Alternative CSS selector not found');
+          }
+        } catch (cssErr2) {
+          // Method 3: Text-based extraction
+          const winnerMatch = fullPageText.match(/Winner([^I]*?)Impact score/i);
+          if (winnerMatch) {
+            result.winner = winnerMatch[1].trim();
+            console.error(`[sim] ✅ Extracted winner (text fallback): ${result.winner}`);
+          } else {
+            console.error(`[sim] ❌ No winner found`);
+          }
         }
       }
+    } catch (winnerErr) {
+      console.error(`[sim] ⚠️ Could not extract winner: ${winnerErr.message}`);
+    }
+    
+    // Extract impact score - use array-based extraction
+    try {
+      const allNumbers = await page.locator('span[font-size="32"]').all();
+      if (allNumbers.length >= 3) {
+        result.impactScore.value = await allNumbers[0].textContent();
+        result.impactScore.rating = "Average";
+        console.error(`[sim] ✅ Extracted impact score: ${result.impactScore.value}`);
+      } else {
+        console.error(`[sim] ❌ Not enough numbers found for impact score`);
+      }
+    } catch (impactErr) {
+      console.error(`[sim] ⚠️ Could not extract impact score: ${impactErr.message}`);
+    }
+    
+    // Extract average score - use array-based extraction
+    try {
+      const allNumbers = await page.locator('span[font-size="32"]').all();
+      if (allNumbers.length >= 3) {
+        result.averageScore = await allNumbers[1].textContent();
+        console.error(`[sim] ✅ Extracted average score: ${result.averageScore}`);
+      } else {
+        console.error(`[sim] ❌ Not enough numbers found for average score`);
+      }
+    } catch (averageErr) {
+      console.error(`[sim] ⚠️ Could not extract average score: ${averageErr.message}`);
+    }
+    
+    // Extract uplift - use array-based extraction
+    try {
+      const allNumbers = await page.locator('span[font-size="32"]').all();
+      if (allNumbers.length >= 3) {
+        result.uplift = await allNumbers[2].textContent();
+        console.error(`[sim] ✅ Extracted uplift: ${result.uplift}`);
+      } else {
+        console.error(`[sim] ❌ Not enough numbers found for uplift`);
+      }
+    } catch (upliftErr) {
+      console.error(`[sim] ⚠️ Could not extract uplift: ${upliftErr.message}`);
+    }
+    
+    // Extract insights text - use specific CSS selector
+    try {
+      // Method 1: Use specific CSS selector for insights
+      const insightsElement = await page.locator('p.css-6hli0j').first();
+      if (await insightsElement.isVisible()) {
+        result.insights = await insightsElement.textContent();
+        console.error(`[sim] ✅ Extracted insights (CSS selector): ${result.insights.substring(0, 100)}...`);
     } else {
-      console.error(`[sim] ❌ Society "${societyNameToUse}" not found in modal!`);
-      console.error("[sim] Will try to select society after modal handling...");
-      isCardVisible = false; // Mark that we need to select society later
-    }
-  } catch (modalErr) {
-    console.error("[sim] Modal handling error:", modalErr.message);
-    isCardVisible = false; // Mark that we need to select society later
-  }
-  
-  // Store whether we successfully selected society in modal
-  let societySelectedInModal = isCardVisible;
-  
-  // Debug: Check what's on the page after modal close
-  console.error("[sim] DEBUG: Current URL:", page.url());
-  const pageTitle = await page.title().catch(() => "N/A");
-  console.error("[sim] DEBUG: Page title:", pageTitle);
-
-  // If Chromium shows chrome-error (e.g., DNS failure on Supabase OAuth), retry SSO once
-  try {
-    if (page.url().startsWith('chrome-error://chromewebdata')) {
-      console.error('[sim] ⚠️ Chrome error page detected after SSO. Retrying SSO once...');
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-          console.error(`[sim] SSO retry attempt ${attempt}...`);
-          await page.goto('https://app.societies.io', { waitUntil: 'domcontentloaded', timeout: 45000 });
-          await page.waitForTimeout(3000);
-          
-          const retryBtn = page.getByRole('button', { name: 'Continue with Google' });
-          if (await retryBtn.count() > 0) {
-            await retryBtn.click({ timeout: 10000 });
-            await page.waitForLoadState('networkidle', { timeout: 60000 }).catch(() => {});
-            await page.waitForTimeout(5000); // Extra wait for app initialization
-          }
-          
-          if (!page.url().startsWith('chrome-error://') && page.url().includes('app.societies.io')) {
-            console.error('[sim] ✅ SSO retry succeeded');
-            // Wait for app to fully initialize
-            await page.waitForTimeout(5000);
-            break;
-          }
-        } catch (e) {
-          console.error(`[sim] Retry ${attempt} error:`, e.message);
-        }
-        await page.waitForTimeout(2000);
-      }
-      console.error('[sim] DEBUG after SSO retry URL:', page.url());
-      
-      // Check for modal again after retry
-      if (page.url().includes('app.societies.io')) {
-        console.error('[sim] Checking for modal after retry...');
-        await page.waitForTimeout(3000);
-        
-        // Try to find society card with the same logic
-        let societyCard = null;
-        let societyNameToUse = society || 'Startup Investors';
-        const societyVariants = [
-          societyNameToUse,
-          `Example ${societyNameToUse}`,
-          societyNameToUse.replace('Example ', ''),
+        // Method 2: Fallback to text-based extraction
+        const insightsPatterns = [
+          /(?:UK nationals|Enterprise Marketing Leaders|HR professionals).*?(?:because|responded).*?(?=\n\n|\n[A-Z]|$)/s,
+          /(?:responded|engaged|preferred).*?(?:because|offered|conveyed).*?(?=\n\n|\n[A-Z]|$)/s,
+          /(?:Compared to|The other options).*?(?=\n\n|\n[A-Z]|$)/s
         ];
         
-        let isCardVisible = false;
-        for (const variant of societyVariants) {
-          societyCard = page.getByRole('button', { name: variant }).first();
-          isCardVisible = await societyCard.isVisible().catch(() => false);
-          if (isCardVisible) {
-            societyNameToUse = variant;
+        for (const pattern of insightsPatterns) {
+          const match = fullPageText.match(pattern);
+          if (match && match[0].length > 50) {
+            result.insights = match[0].trim();
+            console.error(`[sim] ✅ Extracted insights (text fallback): ${result.insights.substring(0, 100)}...`);
             break;
           }
         }
-        
-        if (isCardVisible) {
-          console.error(`[sim] ✅ Modal appeared after retry! Clicking '${societyNameToUse}'`);
-          try {
-            await societyCard.click({ timeout: 3000 });
-          } catch {
-            await societyCard.click({ force: true, timeout: 3000 });
-          }
-          await page.waitForTimeout(2000);
-          console.error("[sim] ✅ Modal dismissed!");
-          societySelectedInModal = true; // Update flag - society was selected in retry modal
-        } else {
-          console.error("[sim] ⚠️ Modal not found after retry, will select society later");
-          societySelectedInModal = false; // Ensure flag is false
-        }
       }
+    } catch (insightsErr) {
+      console.error(`[sim] ⚠️ Could not extract insights: ${insightsErr.message}`);
     }
-  } catch {}
-
-  // Helper: Select from dropdown (using workingPage)
-  const selectDropdown = async (selectors, value, fieldName) => {
-    for (const sel of selectors) {
-      try {
-        const dropdown = workingPage.locator(sel).first();
-        if (await dropdown.count()) {
-          await dropdown.waitFor({ timeout: 5000, state: 'visible' });
-          await dropdown.click();
-          console.error(`[sim] Opened ${fieldName} dropdown`);
-          
-          // Wait a bit for dropdown to open
-          await workingPage.waitForTimeout(500);
-          
-          // Try to select the option
-          const option = workingPage.locator(`text="${value}"`).first();
-          await option.click({ timeout: 5000 });
-          console.error(`[sim] Selected ${fieldName}: "${value}"`);
-          return true;
-        }
-      } catch (e) {
-        continue;
-      }
-    }
-    console.error(`[sim] Warning: Could not find ${fieldName} dropdown`);
-    return false;
-  };
-
-  // Helper: Fill text input (using workingPage)
-  const fillInput = async (selectors, value, fieldName) => {
-    for (const sel of selectors) {
-      try {
-        const input = workingPage.locator(sel).first();
-        if (await input.count()) {
-          await input.fill(value);
-          console.error(`[sim] Filled ${fieldName}: "${value}"`);
-          return true;
-        }
-      } catch (e) {
-        continue;
-      }
-    }
-    console.error(`[sim] Warning: Could not find ${fieldName} input`);
-    return false;
-  };
-
-  // Select society if not already selected in modal
-  if (!societySelectedInModal && society) {
-    console.error(`[sim] Society was not selected in modal, selecting now: "${society}"`);
     
-    // Try multiple variants
-    const societyVariants = [
+    // Build plainText summary
+    result.plainText = `Winner: ${result.winner}\nImpact Score: ${result.impactScore.value}/100\nAverage Score: ${result.averageScore}\nUplift: ${result.uplift}%\n\nInsights: ${result.insights}`;
+    
+    // Build HTML summary
+    result.html = `<div><h3>Winner: ${result.winner}</h3><p>Impact Score: ${result.impactScore.value}/100</p><p>Average Score: ${result.averageScore}</p><p>Uplift: ${result.uplift}%</p><p>Insights: ${result.insights}</p></div>`;
+    
+    // Add new fields to extras for backward compatibility
+    result.extras = {
+      impactScore: result.impactScore,
+      attention: result.attention,
+      insights: result.insights,
+      winner: result.winner,
+      averageScore: result.averageScore,
+      uplift: result.uplift
+    };
+    
+    console.error(`[sim] 🔍 Extras object:`, JSON.stringify(result.extras, null, 2));
+    
+    // Also set the values directly on the result object for direct access
+    // These values are already set above, but let's ensure they're properly set
+    console.error(`[sim] 🔍 Setting result values: winner=${result.winner}, averageScore=${result.averageScore}, uplift=${result.uplift}`);
+    
+    console.error("[sim] ✅ Results extracted successfully");
+    console.error(`[sim] 🔍 Final result object:`, JSON.stringify(result, null, 2));
+    
+    // Wait 5 seconds to see the results in Chrome window
+    console.error("[sim] ⏳ Waiting 5 seconds to view results in Chrome window...");
+    await page.waitForTimeout(5000);
+    console.error("[sim] ✅ Wait complete - closing browser");
+    
+  } catch (extractErr) {
+    console.error(`[sim] ❌ Error extracting results: ${extractErr.message}`);
+    throw new Error(`Could not extract results: ${extractErr.message}`);
+  }
+  
+  // Clear timeout
+  clearTimeout(overallTimeout);
+  
+  const totalTime = Date.now() - t0;
+  console.error(`[sim] ✅ Simulation completed in ${totalTime}ms`);
+
+    return {
+    result,
+    metadata: {
+      ms: totalTime,
+      url: page.url(),
+      template,
       society,
-      `Example ${society}`,
-      society.replace('Example ', ''),
-    ];
-    
-    let societySelected = false;
-    for (const variant of societyVariants) {
-      try {
-        console.error(`[sim] Trying to select society variant: "${variant}"`);
-        const societyBtn = workingPage.getByRole('button', { name: variant }).first();
-        
-        if (await societyBtn.count() > 0) {
-          await societyBtn.click({ timeout: 5000 });
-          console.error(`[sim] ✅ Selected society: "${variant}"`);
-          societySelected = true;
-          break;
-        }
-      } catch (e) {
-        console.error(`[sim] Variant "${variant}" not found, trying next...`);
-        continue;
-      }
-    }
-    
-    if (!societySelected) {
-      console.error(`[sim] ⚠️ Warning: Could not select society "${society}"`);
-    }
-  } else {
-    console.error("[sim] Society already selected from modal dismiss");
-  }
-  
-  await workingPage.waitForTimeout(1000);
-  // Click "Create new test" button - MUST CLICK to open templates modal
-  console.error("[sim] Looking for 'Create New Test' button (ID: #create-new-test-button)...");
-  try {
-    // Use exact ID selector from user
-    const createBtn = workingPage.locator('#create-new-test-button');
-    const count = await createBtn.count();
-    console.error(`[sim] Found ${count} 'Create New Test' button(s)`);
-    
-    if (count > 0) {
-      // Wait for button to be visible
-      await createBtn.waitFor({ timeout: 5000, state: 'visible' });
-      
-      // Try regular click first
-      try {
-        await createBtn.click({ timeout: 3000 });
-        console.error("[sim] ✅ Clicked 'Create New Test' button - Templates modal should open!");
-      } catch (clickErr) {
-        // If regular click fails (overlay blocking), use force click
-        console.error("[sim] Regular click failed, trying force click...");
-        await createBtn.click({ force: true, timeout: 3000 });
-        console.error("[sim] ✅ Force clicked 'Create New Test' button!");
-      }
-      
-      // Wait longer for templates modal to load
-      console.error("[sim] Waiting for templates modal to open...");
-      await workingPage.waitForTimeout(3000);
-      
-    } else {
-      console.error("[sim] ❌ 'Create New Test' button not found!");
-      
-      // Try fallback selectors
-      console.error("[sim] Trying fallback selectors...");
-      const fallbacks = [
-        'div:has-text("Create New Test")',
-        'text="Create New Test"'
-      ];
-      
-      for (const sel of fallbacks) {
-        try {
-          const btn = workingPage.locator(sel).first();
-          if (await btn.count() > 0) {
-            await btn.click({ timeout: 3000 });
-            console.error(`[sim] Clicked using fallback: ${sel}`);
-            await workingPage.waitForTimeout(3000);
-            break;
-          }
-        } catch (e) {
-          continue;
-        }
-      }
-    }
-  } catch (e) {
-    console.error("[sim] Error clicking 'Create New Test' button:", e.message);
-  }
-
-  // Select template (it's a BUTTON with text inside)
-  if (template) {
-    console.error(`[sim] Looking for template button: "${template}"`);
-    try {
-      // Try getByRole first
-      await workingPage.getByRole('button', { name: template }).first().click({ timeout: 5000 });
-      console.error(`[sim] Clicked template button: "${template}"`);
-      await workingPage.waitForTimeout(500);
-    } catch (e) {
-      try {
-        // Fallback: Try button with p text (from user's HTML: button class="css-1lbwnuz" with p class="css-1wfg96s")
-        const templateBtn = workingPage.locator(`button:has(p:text("${template}"))`).first();
-        await templateBtn.click({ timeout: 5000 });
-        console.error(`[sim] Clicked template button with p:text: "${template}"`);
-        await workingPage.waitForTimeout(500);
-      } catch (e2) {
-        console.error(`[sim] Could not find template button "${template}", continuing...`);
-      }
-    }
-  }
-  
-  // Fill input text (use role-based selector)
-  if (inputText) {
-    console.error("[sim] Filling article text...");
-    try {
-      await workingPage.getByRole('textbox', { name: /write your article/i }).fill(inputText, { timeout: 5000 });
-      console.error(`[sim] Filled input text: "${inputText}"`);
-    } catch (e) {
-      console.error("[sim] Could not fill article text, trying fallback selectors...");
-      await fillInput([
-        'textarea[name="inputText"]',
-        'textarea[name="input"]',
-        'textarea[placeholder*="text"]',
-        'textarea'
-      ], inputText, 'input text');
-    }
-  }
-
-  // Helper: Wait for results panel with retry logic
-  const waitForResults = async (retryAttempt = 0) => {
-    const panelSel = '#results-panel, .results-panel, [data-testid="results-panel"], [class*="result"]';
-    
-    try {
-      console.error(`[sim] Waiting for results panel... ${retryAttempt > 0 ? '(retry)' : ''}`);
-      
-      // Step 1: Wait for "Impact Score" heading (primary indicator)
-      console.error("[sim] Waiting for 'Impact Score' heading...");
-      try {
-        await workingPage.waitForSelector('text=Impact Score', { timeout: 240000 }); // 4 minutes
-        console.error("[sim] ✅ Impact Score heading found!");
-      } catch (e) {
-        console.error("[sim] ⚠️ Impact Score heading not found, trying panel selector...");
-        await workingPage.waitForSelector(panelSel, { timeout: 240000 }); // 4 minutes
-      }
-      
-      // Step 2: Wait for score value (e.g., "26 / 100")
-      console.error("[sim] Waiting for score value...");
-      try {
-        await workingPage.waitForFunction(() => {
-          const panel = document.querySelector('#results-panel, .results-panel, [class*="result"]');
-          return panel && /\d+\s*\/\s*\d+/.test(panel.innerText);
-        }, { timeout: 60000 });
-        console.error("[sim] ✅ Score value found!");
-      } catch (e) {
-        console.error("[sim] ⚠️ Score value not found within timeout");
-      }
-      
-      // Step 3: Wait for "Attention" section
-      console.error("[sim] Waiting for 'Attention' section...");
-      try {
-        await workingPage.waitForSelector('text=Attention', { timeout: 30000 });
-        console.error("[sim] ✅ Attention section found!");
-      } catch (e) {
-        console.error("[sim] ⚠️ Attention section not found");
-      }
-      
-      // Step 4: Wait for "Insights" section
-      console.error("[sim] Waiting for 'Insights' section...");
-      try {
-        await workingPage.waitForSelector('text=Insights', { timeout: 30000 });
-        console.error("[sim] ✅ Insights section found!");
-      } catch (e) {
-        console.error("[sim] ⚠️ Insights section not found");
-      }
-
-      // Step 5: Spinner wait (best-effort)
-      console.error("[sim] Checking for spinner...");
-      const spinnerSel = `${panelSel} .spinner, ${panelSel} [data-loading="true"], ${panelSel} [aria-busy="true"]`;
-      if (await workingPage.locator(spinnerSel).count() > 0) {
-        console.error("[sim] Spinner detected, waiting for completion...");
-        try { await workingPage.waitForSelector(spinnerSel, { state: "detached", timeout: 90000 }); } catch {}
-      }
-
-      // Step 6: Stability wait (final confirmation - best effort)
-      console.error("[sim] Checking DOM stability (800ms, 10sec max)...");
-      try {
-        await waitStable(workingPage, panelSel, 800, 10000);
-        console.error("[sim] ✅ DOM stable!");
-      } catch (e) {
-        console.error("[sim] ⚠️ DOM still changing, but all key elements present - proceeding...");
-      }
-      
-      console.error("[sim] ✅ Results ready for extraction!");
-      return true;
-      
-    } catch (err) {
-      if (retryAttempt < 1) {
-        console.error(`[sim] ⚠️ Results wait failed, retrying once... (${err.message})`);
-        // Click Simulate again
-        console.error("[sim] Clicking Simulate again for retry...");
-        try {
-          await workingPage.locator('div').filter({ hasText: /^Simulate$/ }).first().click({ timeout: 10000 });
-        } catch (e) {
-          const simBtn = workingPage.locator(`button:has-text("${simulateButtonText}")`).first();
-          await simBtn.click({ timeout: 10000 });
-        }
-        return await waitForResults(retryAttempt + 1);
-      }
-      throw err;
+      inputText
     }
   };
-
-  // Click Simulate (it's a DIV, not button!)
-  console.error("[sim] Looking for Simulate button...");
-  try {
-    await workingPage.locator('div').filter({ hasText: /^Simulate$/ }).first().click({ timeout: 10000 });
-    console.error("[sim] Clicked Simulate div");
-  } catch (e) {
-    // Fallback to button selector
-    const simBtn = workingPage.locator(`button:has-text("${simulateButtonText}")`).first();
-    await simBtn.click({ timeout: 10000 });
-    console.error("[sim] Clicked Simulate button (fallback)");
-  }
-
-  // Wait for results with retry
-  await waitForResults();
-
-  // Extract right panel data
-  console.error("[sim] Extracting results data...");
-  const resultsData = await workingPage.evaluate(() => {
-    // Helper to find text containing pattern
-    const findTextContaining = (parent, pattern) => {
-      const elements = parent.querySelectorAll('p, span, div, h1, h2, h3, h4, h5, h6');
-      for (const el of elements) {
-        const text = el.innerText?.trim() || '';
-        if (pattern instanceof RegExp ? pattern.test(text) : text.includes(pattern)) {
-          return text;
-        }
-      }
-      return '';
-    };
-
-    // Get right panel
-    const rightPanel = document.querySelector('#results-panel, .results-panel, [data-testid="results-panel"], [class*="result"]');
-    if (!rightPanel) {
-      return {
-        impactScore: { value: null, max: null, rating: '', raw: '' },
-        attention: { full: null, partial: null, ignore: null, raw: {} },
-        insights: '',
-        html: '',
-        plainText: ''
-      };
-    }
-
-    // Extract Impact Score (look for "number / number" pattern)
-    const impactScoreText = findTextContaining(rightPanel, /\d+\s*\/\s*\d+/);
-    const impactMatch = impactScoreText.match(/(\d+)\s*\/\s*(\d+)/);
-    const impactValue = impactMatch ? parseInt(impactMatch[1]) : null;
-    const impactMax = impactMatch ? parseInt(impactMatch[2]) : null;
-    
-    // Extract rating (Very Low, Low, Medium, High, Very High)
-    const impactRating = findTextContaining(rightPanel, /Very Low|Low|Medium|High|Very High/);
-
-    // Extract Attention metrics - more specific matching
-    const extractPercent = (text) => {
-      const match = text.match(/(\d+)%/);
-      return match ? parseInt(match[1]) : null;
-    };
-    
-    // Find Full attention percentage (look for "Full" followed by percentage)
-    const fullText = rightPanel.innerText || '';
-    const fullMatch = fullText.match(/Full[^\d]*(\d+)%/i);
-    const fullAttention = fullMatch ? fullMatch[1] + '%' : '';
-    
-    // Find Partial attention percentage
-    const partialMatch = fullText.match(/Partial[^\d]*(\d+)%/i);
-    const partialAttention = partialMatch ? partialMatch[1] + '%' : '';
-    
-    // Find Ignore attention percentage
-    const ignoreMatch = fullText.match(/Ignore[^\d]*(\d+)%/i);
-    const ignoreAttention = ignoreMatch ? ignoreMatch[1] + '%' : '';
-
-    // Extract Insights text - find section after "Insights" heading (reuse fullText)
-    let insights = '';
-    const insightsMatch = fullText.match(/Insights\s+([\s\S]+?)(?=Conversation|$)/i);
-    if (insightsMatch) {
-      insights = insightsMatch[1].trim();
-    }
-
-    // Get full HTML for fallback (fullText already declared above)
-    const fullHTML = rightPanel.innerHTML;
-
-    return {
-      impactScore: {
-        value: impactValue,
-        max: impactMax,
-        rating: impactRating,
-        raw: impactScoreText
-      },
-      attention: {
-        full: extractPercent(fullAttention),
-        partial: extractPercent(partialAttention),
-        ignore: extractPercent(ignoreAttention),
-        raw: {
-          full: fullAttention,
-          partial: partialAttention,
-          ignore: ignoreAttention
-        }
-      },
-      insights: insights,
-      html: fullHTML,
-      plainText: fullText
-    };
-  });
-
-  console.error("[sim] Extracted Impact Score:", resultsData.impactScore.value + '/' + resultsData.impactScore.max);
-  console.error("[sim] Extracted Attention:", JSON.stringify(resultsData.attention));
-  console.error("[sim] Extracted Insights length:", resultsData.insights.length, "chars");
-
-    return {
-      result: resultsData,
-      metadata: { ms: Date.now() - t0, url: workingPage.url() }
-    };
-    
-  } finally {
-    // Clear the overall timeout
+  
+  } catch (error) {
     clearTimeout(overallTimeout);
+    console.error(`[sim] ❌ Simulation failed: ${error.message}`);
+    throw error;
   }
 }
-
