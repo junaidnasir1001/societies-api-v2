@@ -74,6 +74,12 @@ build/
 coverage/
 *.lcov
 
+# Documentation files (keep only essential ones)
+docs/
+!docs/API_USAGE_EXAMPLES.md
+!docs/PROJECT_OVERVIEW.md
+!docs/QUICK_START.md
+
 # Runtime data
 pids
 *.pid
