@@ -80,6 +80,11 @@ docs/
 !docs/PROJECT_OVERVIEW.md
 !docs/QUICK_START.md
 
+# Production files
+.env
+.env.local
+.env.production
+
 # Runtime data
 pids
 *.pid
