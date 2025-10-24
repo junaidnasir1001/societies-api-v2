@@ -1,3 +1,5 @@
+const { chromium } = require('playwright');
+
 exports.handler = async (event, context) => {
   // Handle CORS
   const headers = {
@@ -44,22 +46,154 @@ exports.handler = async (event, context) => {
         };
       }
 
-      // For now, return a mock response since we can't run Playwright in Netlify Functions
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({
-          ok: true,
-          message: 'API endpoint is working! Playwright automation requires server environment.',
-          result: {
-            winner: 'Test result',
-            impactScore: { value: '75', rating: 'Good' },
-            averageScore: '65',
-            uplift: '15',
-            insights: 'This is a test response. For full automation, deploy to a server environment.'
+      // Convert array to string if needed
+      const testString = Array.isArray(subjectLines) 
+        ? subjectLines.join('\n') 
+        : subjectLines;
+
+      console.log(`[API] Testing: ${contentType} for ${targetAudience}`);
+
+      // Launch browser
+      const browser = await chromium.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--no-zygote',
+          '--disable-gpu'
+        ]
+      });
+
+      try {
+        const page = await browser.newPage();
+        
+        // Set timeout for the entire operation
+        await page.setDefaultTimeout(300000); // 5 minutes
+        
+        // Go to new UI
+        await page.goto("https://boldspace.societies.io/experiments/new", { 
+          waitUntil: "domcontentloaded", 
+          timeout: 90000 
+        });
+        
+        console.log("[API] Page loaded, waiting for form...");
+        await page.waitForTimeout(3000);
+        
+        // Select content type
+        const contentTypeMapping = {
+          'Email subject': 'email_subject',
+          'Ad headline': 'meta_ad'
+        };
+        
+        const contentTypeValue = contentTypeMapping[contentType] || 'email_subject';
+        
+        const contentTypeSelector = page.locator('div').filter({ hasText: /^Content type/ }).getByRole('combobox').first();
+        await contentTypeSelector.waitFor({ timeout: 10000, state: 'visible' });
+        await contentTypeSelector.selectOption({ value: contentTypeValue });
+        
+        console.log(`[API] Selected content type: ${contentTypeValue}`);
+        
+        // Select target audience
+        const audienceMapping = {
+          'UK Marketing Leaders': 'UK Marketing Leaders',
+          'UK HR Decision-Makers': 'UK HR Decision-Makers',
+          'UK Mortgage Advisors': 'UK Mortgage Advisors',
+          'UK Beauty Lovers': 'UK Beauty Lovers',
+          'UK Consumers': 'UK Consumers',
+          'UK Journalists': 'UK Journalists',
+          'UK Enterprise Marketing Leaders': 'UK Enterprise Marketing Leaders'
+        };
+        
+        const audienceValue = audienceMapping[targetAudience] || targetAudience;
+        
+        const audienceSelector = page.getByRole('combobox').nth(1);
+        await audienceSelector.waitFor({ timeout: 10000, state: 'visible' });
+        await audienceSelector.selectOption(audienceValue);
+        
+        console.log(`[API] Selected audience: ${audienceValue}`);
+        
+        // Fill subject lines
+        const textarea = page.getByRole('textbox', { name: 'Add up to 10' });
+        await textarea.waitFor({ timeout: 10000, state: 'visible' });
+        await textarea.fill(testString);
+        
+        console.log(`[API] Filled subject lines: ${testString}`);
+        
+        // Click Run experiment
+        const runButton = page.getByRole('button', { name: 'Run experiment' });
+        await runButton.waitFor({ timeout: 10000, state: 'visible' });
+        await runButton.click();
+        
+        console.log("[API] Clicked Run experiment");
+        
+        // Wait for redirect to results
+        await page.waitForURL('**/results/**', { timeout: 120000 });
+        console.log("[API] Redirected to results page");
+        
+        // Wait for results to load
+        await page.waitForTimeout(5000);
+        
+        // Wait for animated counters to finish
+        await page.waitForTimeout(10000);
+        
+        // Extract results
+        const allNumbers = await page.locator('span[font-size="32"]').all();
+        
+        let impactScore = "0";
+        let averageScore = "0";
+        let uplift = "0";
+        let winner = "N/A";
+        
+        if (allNumbers.length >= 3) {
+          impactScore = await allNumbers[0].textContent();
+          averageScore = await allNumbers[1].textContent();
+          uplift = await allNumbers[2].textContent();
+        }
+        
+        // Extract winner
+        try {
+          const winnerElement = page.locator('div').filter({ hasText: /Winner/ }).locator('span[font-size="32"]').first();
+          if (await winnerElement.isVisible()) {
+            winner = await winnerElement.textContent();
           }
-        })
-      };
+        } catch (e) {
+          console.log("[API] Could not extract winner");
+        }
+        
+        // Extract insights
+        let insights = "No insights available";
+        try {
+          const insightsElement = page.locator('div').filter({ hasText: /preferred/ }).first();
+          if (await insightsElement.isVisible()) {
+            insights = await insightsElement.textContent();
+          }
+        } catch (e) {
+          console.log("[API] Could not extract insights");
+        }
+        
+        console.log(`[API] Results: winner=${winner}, impact=${impactScore}, average=${averageScore}, uplift=${uplift}`);
+        
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            ok: true,
+            result: {
+              winner: winner,
+              impactScore: { value: impactScore, rating: "Average" },
+              averageScore: averageScore,
+              uplift: uplift,
+              insights: insights
+            }
+          })
+        };
+        
+      } finally {
+        await browser.close();
+      }
     }
 
     // 404 for other paths
