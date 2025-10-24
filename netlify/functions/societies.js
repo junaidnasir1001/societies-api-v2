@@ -1,3 +1,5 @@
+const { chromium } = require('playwright');
+
 exports.handler = async (event, context) => {
   // Handle CORS
   const headers = {
@@ -25,8 +27,7 @@ exports.handler = async (event, context) => {
         body: JSON.stringify({
           status: 'ok',
           timestamp: new Date().toISOString(),
-          service: 'Societies.io Content Testing API',
-          note: 'For full automation, deploy to a server environment with Playwright support'
+          service: 'Societies.io Content Testing API - Full Automation'
         })
       };
     }
@@ -50,20 +51,195 @@ exports.handler = async (event, context) => {
         ? subjectLines.join('\n') 
         : subjectLines;
 
-      console.log(`[API] Testing: ${contentType} for ${targetAudience}`);
+      console.log(`[API] Starting full automation: ${contentType} for ${targetAudience}`);
 
-      // Simulate realistic results based on input
-      const results = simulateResults(contentType, testString, targetAudience);
+      // Launch browser with optimized settings for Netlify
+      const browser = await chromium.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--no-zygote',
+          '--disable-gpu',
+          '--disable-web-security',
+          '--disable-features=VizDisplayCompositor'
+        ]
+      });
 
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({
-          ok: true,
-          result: results,
-          note: 'This is a simulation. For full automation with Playwright, deploy to a server environment.'
-        })
-      };
+      try {
+        const page = await browser.newPage();
+        
+        // Set timeout for the entire operation
+        await page.setDefaultTimeout(300000); // 5 minutes
+        
+        console.log("[API] Navigating to new UI...");
+        // Go to new UI (no Google sign-in required)
+        await page.goto("https://boldspace.societies.io/experiments/new", { 
+          waitUntil: "domcontentloaded", 
+          timeout: 90000 
+        });
+        
+        console.log("[API] Waiting for page to load...");
+        await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {});
+        await page.waitForTimeout(3000);
+        
+        console.log("[API] ✅ Successfully on new UI - no Google sign-in required");
+        
+        // Step 1: Select content type
+        console.log("[API] Selecting content type...");
+        
+        const contentTypeMapping = {
+          'Email subject': 'email_subject',
+          'Ad headline': 'meta_ad'
+        };
+        
+        const contentTypeValue = contentTypeMapping[contentType] || 'email_subject';
+        
+        const contentTypeSelector = page.locator('div').filter({ hasText: /^Content type/ }).getByRole('combobox').first();
+        await contentTypeSelector.waitFor({ timeout: 10000, state: 'visible' });
+        await contentTypeSelector.selectOption({ value: contentTypeValue });
+        
+        console.log(`[API] ✅ Selected content type: ${contentTypeValue}`);
+        
+        // Step 2: Select target audience
+        console.log("[API] Selecting target audience...");
+        
+        const audienceMapping = {
+          'UK Marketing Leaders': 'UK Marketing Leaders',
+          'UK HR Decision-Makers': 'UK HR Decision-Makers',
+          'UK Mortgage Advisors': 'UK Mortgage Advisors',
+          'UK Beauty Lovers': 'UK Beauty Lovers',
+          'UK Consumers': 'UK Consumers',
+          'UK Journalists': 'UK Journalists',
+          'UK Enterprise Marketing Leaders': 'UK Enterprise Marketing Leaders'
+        };
+        
+        const audienceValue = audienceMapping[targetAudience] || targetAudience;
+        
+        const audienceSelector = page.getByRole('combobox').nth(1);
+        await audienceSelector.waitFor({ timeout: 10000, state: 'visible' });
+        await audienceSelector.selectOption(audienceValue);
+        
+        console.log(`[API] ✅ Selected audience: ${audienceValue}`);
+        
+        // Step 3: Fill subject lines
+        console.log("[API] Filling subject lines...");
+        
+        const textarea = page.getByRole('textbox', { name: 'Add up to 10' });
+        await textarea.waitFor({ timeout: 10000, state: 'visible' });
+        await textarea.fill(testString);
+        
+        console.log(`[API] ✅ Filled subject lines: ${testString}`);
+        
+        // Step 4: Click Run experiment
+        console.log("[API] Clicking Run experiment...");
+        
+        const runButton = page.getByRole('button', { name: 'Run experiment' });
+        await runButton.waitFor({ timeout: 10000, state: 'visible' });
+        await runButton.click();
+        
+        console.log("[API] ✅ Clicked Run experiment");
+        
+        // Step 5: Wait for experiment to start and redirect to results
+        console.log("[API] Waiting for experiment to start...");
+        await page.waitForTimeout(5000);
+        
+        console.log("[API] Waiting for redirect to results page...");
+        await page.waitForURL('**/results/**', { timeout: 120000 });
+        console.log("[API] ✅ Redirected to results page");
+        
+        // Step 6: Wait for results to load
+        console.log("[API] Waiting for results to load...");
+        await page.waitForTimeout(5000);
+        
+        // Step 7: Wait for animated counters to finish
+        console.log("[API] ⏳ Waiting for animated counters to finish...");
+        await page.waitForTimeout(10000); // Wait for counters to reach final values
+        
+        console.log("[API] ⏳ Additional wait for final values...");
+        await page.waitForTimeout(5000); // Extra buffer for slow animations
+        
+        // Step 8: Extract results from new UI
+        console.log("[API] Extracting results from new UI...");
+        
+        // Extract all numbers with font-size="32"
+        const allNumbers = await page.locator('span[font-size="32"]').all();
+        console.log(`[API] 🔍 Found ${allNumbers.length} numbers with font-size="32"`);
+        
+        let impactScore = "0";
+        let averageScore = "0";
+        let uplift = "0";
+        let winner = "N/A";
+        
+        if (allNumbers.length >= 3) {
+          impactScore = await allNumbers[0].textContent();
+          averageScore = await allNumbers[1].textContent();
+          uplift = await allNumbers[2].textContent();
+          console.log(`[API] 🔍 Number 0: "${impactScore}"`);
+          console.log(`[API] 🔍 Number 1: "${averageScore}"`);
+          console.log(`[API] 🔍 Number 2: "${uplift}"`);
+        }
+        
+        // Extract winner
+        try {
+          const winnerElement = page.locator('div').filter({ hasText: /Winner/ }).locator('span[font-size="32"]').first();
+          if (await winnerElement.isVisible()) {
+            winner = await winnerElement.textContent();
+            console.log(`[API] ✅ Extracted winner: ${winner}`);
+          }
+        } catch (e) {
+          console.log("[API] Could not extract winner, trying alternative method");
+          // Alternative method to extract winner
+          try {
+            const winnerText = await page.textContent('body');
+            const winnerMatch = winnerText.match(/Winner\s*([^\n]+)/i);
+            if (winnerMatch) {
+              winner = winnerMatch[1].trim();
+              console.log(`[API] ✅ Extracted winner (text method): ${winner}`);
+            }
+          } catch (e2) {
+            console.log("[API] Could not extract winner with alternative method");
+          }
+        }
+        
+        // Extract insights
+        let insights = "No insights available";
+        try {
+          const insightsElement = page.locator('div').filter({ hasText: /preferred/ }).first();
+          if (await insightsElement.isVisible()) {
+            insights = await insightsElement.textContent();
+            console.log(`[API] ✅ Extracted insights: ${insights.substring(0, 100)}...`);
+          }
+        } catch (e) {
+          console.log("[API] Could not extract insights");
+        }
+        
+        console.log(`[API] ✅ Results extracted: winner=${winner}, impact=${impactScore}, average=${averageScore}, uplift=${uplift}`);
+        
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            ok: true,
+            result: {
+              winner: winner,
+              impactScore: { 
+                value: impactScore, 
+                rating: parseInt(impactScore) > 60 ? "Good" : parseInt(impactScore) > 40 ? "Average" : "Below Average" 
+              },
+              averageScore: averageScore,
+              uplift: uplift,
+              insights: insights
+            }
+          })
+        };
+        
+      } finally {
+        await browser.close();
+      }
     }
 
     // 404 for other paths
@@ -88,50 +264,3 @@ exports.handler = async (event, context) => {
     };
   }
 };
-
-// Simulate realistic results based on input
-function simulateResults(contentType, testString, targetAudience) {
-  const lines = testString.split('\n').filter(line => line.trim());
-  const winner = lines[Math.floor(Math.random() * lines.length)] || lines[0] || 'Test result';
-  
-  // Generate realistic scores
-  const impactScore = Math.floor(Math.random() * 40) + 40; // 40-80
-  const averageScore = Math.floor(Math.random() * 30) + 30; // 30-60
-  const uplift = Math.floor(Math.random() * 30) + 10; // 10-40
-  
-  // Generate insights based on audience
-  const insights = generateInsights(contentType, targetAudience, winner);
-  
-  return {
-    winner: winner,
-    impactScore: { 
-      value: impactScore.toString(), 
-      rating: impactScore > 60 ? "Good" : impactScore > 40 ? "Average" : "Below Average" 
-    },
-    averageScore: averageScore.toString(),
-    uplift: uplift.toString(),
-    insights: insights
-  };
-}
-
-function generateInsights(contentType, targetAudience, winner) {
-  const audienceInsights = {
-    'UK Marketing Leaders': 'Marketing leaders responded best to content that demonstrates clear value proposition and ROI.',
-    'UK HR Decision-Makers': 'HR decision-makers preferred content that emphasizes professional development and organizational benefits.',
-    'UK Mortgage Advisors': 'Mortgage advisors engaged most with content that highlights financial security and long-term planning.',
-    'UK Beauty Lovers': 'Beauty enthusiasts responded to content that emphasizes personal care and self-expression.',
-    'UK Consumers': 'General consumers preferred straightforward, benefit-focused messaging.',
-    'UK Journalists': 'Journalists engaged with content that provides newsworthy angles and credible information.',
-    'UK Enterprise Marketing Leaders': 'Enterprise marketing leaders valued strategic, data-driven content approaches.'
-  };
-  
-  const contentTypeInsights = {
-    'Email subject': 'Email subject lines that create urgency and clear value perform best.',
-    'Ad headline': 'Ad headlines with specific benefits and emotional triggers drive higher engagement.'
-  };
-  
-  const baseInsight = audienceInsights[targetAudience] || 'The target audience responded positively to the content.';
-  const typeInsight = contentTypeInsights[contentType] || 'Content type analysis shows strong performance.';
-  
-  return `${baseInsight} ${typeInsight} The winning option "${winner}" resonated most effectively with this audience segment.`;
-}
