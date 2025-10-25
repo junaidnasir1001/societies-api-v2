@@ -179,18 +179,36 @@ export async function runSimulation(page, { society, template, inputText, simula
   
   // Wait for experiment to complete and results to be visible
   console.error("[sim] Waiting for experiment to complete...");
+  
+  // Wait longer for the experiment to complete (up to 5 minutes)
+  await page.waitForTimeout(60000); // Wait 1 minute for experiment to complete
+  
+  // Check if we're on results page by looking for results indicators
+  let resultsFound = false;
   try {
-    // Wait for the results content to appear (Winner, Impact score, etc.)
+    // Wait for any results indicators
     await page.waitForSelector('text=Winner', { timeout: 120000 });
-    console.error("[sim] ✅ Results content is visible");
+    resultsFound = true;
+    console.error("[sim] ✅ Results content is visible (Winner found)");
   } catch (resultsErr) {
-    console.error(`[sim] ⚠️ Results content not found: ${resultsErr.message}`);
-    // Try alternative selectors
+    console.error(`[sim] ⚠️ Winner not found, trying other selectors...`);
+    
     try {
-      await page.waitForSelector('text=Impact score', { timeout: 30000 });
-      console.error("[sim] ✅ Impact score found as fallback");
-    } catch (fallbackErr) {
-      console.error(`[sim] ⚠️ No results selectors found: ${fallbackErr.message}`);
+      await page.waitForSelector('text=Impact score', { timeout: 60000 });
+      resultsFound = true;
+      console.error("[sim] ✅ Results content is visible (Impact score found)");
+    } catch (altErr) {
+      console.error(`[sim] ⚠️ Impact score not found, trying final selectors...`);
+      
+      try {
+        await page.waitForSelector('text=Average Score', { timeout: 60000 });
+        resultsFound = true;
+        console.error("[sim] ✅ Results content is visible (Average Score found)");
+      } catch (finalErr) {
+        console.error(`[sim] ⚠️ No results selectors found: ${finalErr.message}`);
+        console.error(`[sim] 🔍 Current URL: ${page.url()}`);
+        console.error(`[sim] 🔍 Page title: ${await page.title()}`);
+      }
     }
   }
   
