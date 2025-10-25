@@ -237,6 +237,7 @@ export async function runSimulation(page, { society, template, inputText, simula
   try {
     // Debug: Log the full page content to understand the structure
     const fullPageText = await page.textContent('body');
+    const normalizedPageText = fullPageText.replace(/\s+/g, ' ');
     console.error(`[sim] 🔍 Full page text (first 500 chars): ${fullPageText.substring(0, 500)}...`);
     
     // Debug: Get all numbers on the page to understand the structure
@@ -363,6 +364,33 @@ export async function runSimulation(page, { society, template, inputText, simula
       console.error(`[sim] ⚠️ Could not extract insights: ${insightsErr.message}`);
     }
     
+    const sanitizeWinner = (raw) => {
+      if (raw && raw.trim()) {
+        let cleaned = raw.replace(/\s+/g, ' ');
+        cleaned = cleaned.replace(/^Winner\s*/i, '');
+        cleaned = cleaned.replace(/Impact score.*$/i, '').trim();
+        if (cleaned && cleaned.length < 150) {
+          return cleaned;
+        }
+      }
+      const match = normalizedPageText.match(/Winner\s+(.+?)\s+(?:Impact score|Winning Option)/i);
+      return match ? match[1].trim() : raw?.trim() || '';
+    };
+
+    const sanitizeNumericField = (raw, fallbackRegex) => {
+      const fromRaw = raw?.toString().match(/\d+/)?.[0];
+      if (fromRaw) {
+        return fromRaw;
+      }
+      const fallbackMatch = normalizedPageText.match(fallbackRegex);
+      return fallbackMatch ? fallbackMatch[1] : raw;
+    };
+
+    result.winner = sanitizeWinner(result.winner);
+    result.impactScore.value = sanitizeNumericField(result.impactScore.value, /Impact score\s*(\d+)/i);
+    result.averageScore = sanitizeNumericField(result.averageScore, /Average Score\s*(\d+)/i);
+    result.uplift = sanitizeNumericField(result.uplift, /↑\s*(\d+)%/);
+
     // Build plainText summary
     result.plainText = `Winner: ${result.winner}\nImpact Score: ${result.impactScore.value}/100\nAverage Score: ${result.averageScore}\nUplift: ${result.uplift}%\n\nInsights: ${result.insights}`;
     
