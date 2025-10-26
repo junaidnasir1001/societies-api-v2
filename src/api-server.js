@@ -734,6 +734,86 @@ app.get('/api/jobs/:jobId', (req, res) => {
 
   res.json(payload);
 });
+
+// Long polling endpoint for job status - waits until job completes
+app.get('/api/jobs/:jobId/wait', (req, res) => {
+  const { jobId } = req.params;
+  const timeout = parseInt(req.query.timeout) || 300000; // 5 minutes default
+  const pollInterval = parseInt(req.query.interval) || 5000; // 5 seconds
+  const initialDelay = parseInt(req.query.delay) || 60000; // 60 seconds initial delay
+  
+  console.log(`[API] 🔄 Long polling started for job ${jobId} (timeout: ${timeout}ms, interval: ${pollInterval}ms, initial delay: ${initialDelay}ms)`);
+  
+  const startTime = Date.now();
+  let pollCount = 0;
+  
+  const poll = async () => {
+    pollCount++;
+    const job = jobs.get(jobId);
+    
+    if (!job) {
+      console.log(`[API] ❌ Job ${jobId} not found`);
+      return res.status(404).json({ 
+        ok: false, 
+        error: `Job not found: ${jobId}`,
+        jobId,
+        status: 'not_found'
+      });
+    }
+    
+    console.log(`[API] 🔍 Poll ${pollCount}: Job ${jobId} status = ${job.status}`);
+    
+    // Check if job is complete
+    if (job.status === 'done') {
+      console.log(`[API] ✅ Job ${jobId} completed successfully after ${pollCount} polls`);
+      return res.json({
+        ok: true,
+        jobId: job.id,
+        status: 'done',
+        createdAt: job.createdAt,
+        updatedAt: job.updatedAt,
+        result: job.result,
+        pollCount,
+        totalTime: Date.now() - startTime
+      });
+    }
+    
+    if (job.status === 'failed') {
+      console.log(`[API] ❌ Job ${jobId} failed after ${pollCount} polls`);
+      return res.status(500).json({
+        ok: false,
+        jobId: job.id,
+        status: 'failed',
+        error: job.error || 'Unknown error',
+        createdAt: job.createdAt,
+        updatedAt: job.updatedAt,
+        pollCount,
+        totalTime: Date.now() - startTime
+      });
+    }
+    
+    // Check if timeout reached
+    if (Date.now() - startTime > timeout) {
+      console.log(`[API] ⏰ Job ${jobId} polling timeout after ${pollCount} polls (${timeout}ms)`);
+      return res.status(408).json({
+        ok: false,
+        jobId: job.id,
+        status: 'timeout',
+        error: `Job polling timeout after ${timeout}ms`,
+        currentStatus: job.status,
+        pollCount,
+        totalTime: Date.now() - startTime
+      });
+    }
+    
+    // Wait and poll again
+    setTimeout(poll, pollInterval);
+  };
+  
+  // Start polling after initial delay
+  setTimeout(poll, initialDelay);
+});
+
 app.use('*', (req, res) => {
   res.status(404).json({
     ok: false,
