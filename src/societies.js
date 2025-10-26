@@ -180,28 +180,28 @@ export async function runSimulation(page, { society, template, inputText, simula
   // Wait for experiment to complete and results to be visible
   console.error("[sim] Waiting for experiment to complete...");
   
-  // Wait longer for the experiment to complete (up to 5 minutes)
-  await page.waitForTimeout(60000); // Wait 1 minute for experiment to complete
+  // Wait for the experiment to complete (reduced for faster response)
+  await page.waitForTimeout(30000); // Wait 30 seconds for experiment to complete
   
   // Check if we're on results page by looking for results indicators
   let resultsFound = false;
   try {
     // Wait for any results indicators
-    await page.waitForSelector('text=Winner', { timeout: 120000 });
+    await page.waitForSelector('text=Winner', { timeout: 60000 });
     resultsFound = true;
     console.error("[sim] ✅ Results content is visible (Winner found)");
   } catch (resultsErr) {
     console.error(`[sim] ⚠️ Winner not found, trying other selectors...`);
     
     try {
-      await page.waitForSelector('text=Impact score', { timeout: 60000 });
+      await page.waitForSelector('text=Impact score', { timeout: 30000 });
       resultsFound = true;
       console.error("[sim] ✅ Results content is visible (Impact score found)");
     } catch (altErr) {
       console.error(`[sim] ⚠️ Impact score not found, trying final selectors...`);
       
       try {
-        await page.waitForSelector('text=Average Score', { timeout: 60000 });
+        await page.waitForSelector('text=Average Score', { timeout: 30000 });
         resultsFound = true;
         console.error("[sim] ✅ Results content is visible (Average Score found)");
       } catch (finalErr) {
@@ -212,13 +212,13 @@ export async function runSimulation(page, { society, template, inputText, simula
     }
   }
   
-  // CRITICAL: Wait for animated counters to finish - this is the key fix!
+  // Wait for animated counters to finish (optimized for speed)
   console.error("[sim] ⏳ Waiting for animated counters to finish...");
-  await page.waitForTimeout(10000); // Wait for counters to reach final values
+  await page.waitForTimeout(5000); // Wait for counters to reach final values
   
   // Additional wait to ensure all animations are complete
   console.error("[sim] ⏳ Additional wait for final values...");
-  await page.waitForTimeout(5000); // Extra buffer for slow animations
+  await page.waitForTimeout(3000); // Reduced buffer for faster response
   
   // Extract results from new UI
   console.error("[sim] Extracting results from new UI...");
