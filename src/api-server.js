@@ -740,7 +740,7 @@ app.get('/api/jobs/:jobId/wait', (req, res) => {
   const { jobId } = req.params;
   const timeout = parseInt(req.query.timeout) || 300000; // 5 minutes default
   const pollInterval = parseInt(req.query.interval) || 5000; // 5 seconds
-  const initialDelay = parseInt(req.query.delay) || 60000; // 60 seconds initial delay
+  const initialDelay = parseInt(req.query.delay) || 0; // 60 seconds initial delay
   
   console.log(`[API] 🔄 Long polling started for job ${jobId} (timeout: ${timeout}ms, interval: ${pollInterval}ms, initial delay: ${initialDelay}ms)`);
   
