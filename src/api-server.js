@@ -328,11 +328,21 @@ app.post('/api/societies/test-content', apiKeyAuth, async (req, res) => {
     
     // Handle both single testString and testStrings array, plus new subjectLines/adHeadlines
     let finalTestString = testString;
-    if (testStrings && Array.isArray(testStrings)) {
+    
+    // Support testString as array (new format)
+    if (testString && Array.isArray(testString)) {
+      finalTestString = testString.join('\n');
+    }
+    // Support testStrings array (existing format)
+    else if (testStrings && Array.isArray(testStrings)) {
       finalTestString = testStrings.join('\n');
-    } else if (subjectLines && Array.isArray(subjectLines)) {
+    }
+    // Support subjectLines array (new format)
+    else if (subjectLines && Array.isArray(subjectLines)) {
       finalTestString = subjectLines.join('\n');
-    } else if (adHeadlines && Array.isArray(adHeadlines)) {
+    }
+    // Support adHeadlines array (new format)
+    else if (adHeadlines && Array.isArray(adHeadlines)) {
       finalTestString = adHeadlines.join('\n');
     }
     
