@@ -185,6 +185,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         attention: { full: attFull, partial: attPartial, ignore: attIgnore },
         insights,
         summaryText,
+        // New UI fields - use extras values directly with fallbacks
+        winner: extras.winner || "N/A",
+        averageScore: extras.averageScore || "N/A", 
+        uplift: extras.uplift || "N/A",
         keyFindings: [
           `Impact score: ${impactValueStr}/100 (${impactRating})`,
           `Full attention: ${attFull}%`,

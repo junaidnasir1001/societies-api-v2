@@ -428,10 +428,10 @@ app.post('/api/societies/test-content', apiKeyAuth, async (req, res) => {
               attention: { full: attFull, partial: attPartial, ignore: attIgnore },
               insights,
               summaryText,
-              // New UI fields - use extras values directly with fallbacks
-              winner: extras.winner || result.result.winner || "N/A",
-              averageScore: extras.averageScore || result.result.averageScore || "N/A", 
-              uplift: extras.uplift || result.result.uplift || "N/A",
+        // New UI fields - use extras values directly with fallbacks
+        winner: extras.winner || "N/A",
+        averageScore: extras.averageScore || "N/A", 
+        uplift: extras.uplift || "N/A",
               keyFindings: [
                 `Impact score: ${impactValueStr}/100 (${impactRating})`,
                 `Full attention: ${attFull}%`,
@@ -502,9 +502,9 @@ app.post('/api/societies/test-content', apiKeyAuth, async (req, res) => {
         insights,
         summaryText,
         // New UI fields - use extras values directly with fallbacks
-        winner: extras.winner || result.result.winner || result.winner || "N/A",
-        averageScore: extras.averageScore || result.result.averageScore || result.averageScore || "N/A", 
-        uplift: extras.uplift || result.result.uplift || result.uplift || "N/A",
+        winner: extras.winner || "N/A",
+        averageScore: extras.averageScore || "N/A", 
+        uplift: extras.uplift || "N/A",
         keyFindings: [
           `Impact score: ${impactValueStr}/100 (${impactRating})`,
           `Full attention: ${attFull}%`,

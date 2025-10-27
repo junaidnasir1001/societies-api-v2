@@ -12,7 +12,7 @@ const testRequest = {
   id: 1,
   method: 'tools/call',
   params: {
-    name: 'societies_run',
+    name: 'societies_test_content',
     arguments: {
       societyName: 'Startup Investors',
       testType: 'Article',
@@ -47,6 +47,9 @@ server.stdout.on('end', () => {
       console.log('\n🎉 TEST PASSED!');
       console.log(`   Impact Score: ${content.results.impactScore.value}/100`);
       console.log(`   Attention: Full ${content.results.attention.full}%, Ignore ${content.results.attention.ignore}%`);
+      console.log(`   Winner: ${content.results.winner}`);
+      console.log(`   Average Score: ${content.results.averageScore}`);
+      console.log(`   Uplift: ${content.results.uplift}%`);
     } else {
       console.log('\n❌ TEST FAILED:', content.error);
     }
