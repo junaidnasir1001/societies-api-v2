@@ -35,7 +35,18 @@ app.use((req, res, next) => {
 function normalizeTestType(testType) {
   if (!testType) return 'Article'; // Default fallback
   
-  const normalized = testType.toLowerCase().trim();
+  // Handle case where testType might be an object with enum property
+  let actualTestType = testType;
+  if (typeof testType === 'object' && testType.enum && Array.isArray(testType.enum)) {
+    actualTestType = testType.enum[0]; // Use first enum value
+  }
+  
+  // Ensure it's a string
+  if (typeof actualTestType !== 'string') {
+    actualTestType = String(actualTestType);
+  }
+  
+  const normalized = actualTestType.toLowerCase().trim();
   
   // Official societies.io test types (from UI)
   const officialTypes = {

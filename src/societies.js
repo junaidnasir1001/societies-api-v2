@@ -33,7 +33,142 @@ export async function runSimulation(page, { society, template, inputText, simula
   // Wait for form to be ready
   await page.waitForTimeout(3000);
   
-  console.error("[sim] ✅ Successfully on new UI - no Google sign-in required");
+  // Check if we need Google login (new UI change)
+  console.error("[sim] Checking for Google login requirement...");
+  const ssoBtn = page.getByRole('button', { name: 'Continue with Google' });
+  
+  if (await ssoBtn.count() > 0) {
+    console.error("[sim] Google login required - clicking 'Continue with Google'...");
+    await ssoBtn.click({ timeout: 10000 });
+    console.error("[sim] SSO clicked, waiting for Google login page...");
+    
+    // Wait for Google login page
+    await page.waitForLoadState("domcontentloaded", { timeout: 30000 });
+    
+    // Check if Google login is needed (might already be logged in)
+    console.error("[sim] Checking if Google login is required...");
+    const emailInput = page.getByRole('textbox', { name: /email or phone/i });
+
+    if (await emailInput.count() > 0 && email && password) {
+      console.error("[sim] Google login required, filling credentials...");
+      
+      // Fill email with more robust approach
+      try {
+        await emailInput.waitFor({ timeout: 10000, state: 'visible' });
+        await emailInput.clear();
+        await emailInput.fill(email, { timeout: 10000 });
+        console.error(`[sim] ✅ Email filled: ${email}`);
+        
+        // Wait a bit for the field to register the input
+        await page.waitForTimeout(1000);
+        
+        // Click Next button
+        const nextBtn = page.getByRole('button', { name: 'Next' });
+        await nextBtn.waitFor({ timeout: 10000, state: 'visible' });
+        await nextBtn.click({ timeout: 10000 });
+        console.error("[sim] ✅ Next button clicked");
+      } catch (emailErr) {
+        console.error(`[sim] ❌ Email filling failed: ${emailErr.message}`);
+        // Try alternative approach
+        try {
+          await emailInput.click();
+          await page.waitForTimeout(500);
+          await emailInput.fill(email);
+          await page.waitForTimeout(1000);
+          await page.keyboard.press('Enter');
+          console.error("[sim] ✅ Email filled with alternative method");
+        } catch (altErr) {
+          console.error(`[sim] ❌ Alternative email method failed: ${altErr.message}`);
+          throw new Error(`Could not fill email field: ${emailErr.message}`);
+        }
+      }
+      
+      // Fill password with more robust approach
+      await page.waitForTimeout(3000); // Wait longer for password page to load
+      
+      try {
+        const passwordInput = page.getByRole('textbox', { name: /enter your password/i });
+        await passwordInput.waitFor({ timeout: 30000, state: 'visible' });
+        await passwordInput.clear();
+        await passwordInput.fill(password, { timeout: 10000 });
+        console.error("[sim] ✅ Password filled");
+        
+        // Wait a bit for the field to register the input
+        await page.waitForTimeout(1000);
+        
+        // Click Next button
+        const nextBtn = page.getByRole('button', { name: 'Next' });
+        await nextBtn.waitFor({ timeout: 10000, state: 'visible' });
+        await nextBtn.click({ timeout: 10000 });
+        console.error("[sim] ✅ Password Next button clicked");
+      } catch (passwordErr) {
+        console.error(`[sim] ❌ Password filling failed: ${passwordErr.message}`);
+        // Try alternative approach
+        try {
+          const passwordInput = page.locator('input[type="password"]');
+          await passwordInput.waitFor({ timeout: 30000, state: 'visible' });
+          await passwordInput.fill(password);
+          await page.waitForTimeout(1000);
+          await page.keyboard.press('Enter');
+          console.error("[sim] ✅ Password filled with alternative method");
+        } catch (altErr) {
+          console.error(`[sim] ❌ Alternative password method failed: ${altErr.message}`);
+          throw new Error(`Could not fill password field: ${passwordErr.message}`);
+        }
+      }
+      
+      console.error("[sim] Google login submitted, waiting for redirect...");
+      await page.waitForLoadState("domcontentloaded", { timeout: 30000 });
+      
+      // Wait for Google's redirect chain to complete
+      await page.waitForTimeout(5000);
+      
+      // Handle consent screen if present
+      console.error("[sim] Checking for Google consent screen...");
+      await page.waitForTimeout(2000);
+      try {
+        const continueBtn = page.getByRole('button', { name: /continue|allow|accept/i });
+        if (await continueBtn.count() > 0) {
+          console.error("[sim] Clicking consent Continue button...");
+          await continueBtn.first().click({ timeout: 10000 });
+          await page.waitForLoadState("networkidle", { timeout: 60000 });
+        }
+      } catch (consentErr) {
+        console.error("[sim] No consent screen or already consented");
+      }
+      
+      // Final wait for app to load
+      await page.waitForLoadState("networkidle", { timeout: 60000 }).catch(() => {});
+      
+      // If still on Google accounts page (SetSID, etc), wait for final redirect
+      if (page.url().includes('accounts.google.com')) {
+        console.error("[sim] Still on Google accounts, waiting for final redirect...");
+        try {
+          await page.waitForURL('https://app.societies.io/**', { timeout: 30000 });
+          console.error("[sim] ✅ Successfully redirected to app");
+        } catch (redirectErr) {
+          console.error(`[sim] ❌ Redirect timeout: ${redirectErr.message}`);
+          console.error("[sim] Current URL:", page.url());
+          // Try to navigate back to app manually
+          try {
+            await page.goto('https://app.societies.io', { waitUntil: 'domcontentloaded', timeout: 30000 });
+            console.error("[sim] ✅ Manual navigation to app successful");
+          } catch (navErr) {
+            console.error(`[sim] ❌ Manual navigation failed: ${navErr.message}`);
+            throw new Error(`Google login redirect failed: ${redirectErr.message}`);
+          }
+        }
+        await page.waitForTimeout(3000);
+      }
+    } else {
+      console.error("[sim] Already logged into Google or no credentials provided");
+      await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {});
+    }
+  } else {
+    console.error("[sim] No SSO button, already logged in");
+  }
+  
+  console.error("[sim] ✅ Successfully authenticated - proceeding with simulation");
   
   // Now proceed with the new UI flow
   console.error("[sim] Starting new UI simulation process...");
