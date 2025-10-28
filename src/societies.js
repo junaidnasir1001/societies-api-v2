@@ -144,15 +144,15 @@ export async function runSimulation(page, { society, template, inputText, simula
       if (page.url().includes('accounts.google.com')) {
         console.error("[sim] Still on Google accounts, waiting for final redirect...");
         try {
-          await page.waitForURL('https://app.societies.io/**', { timeout: 30000 });
-          console.error("[sim] ✅ Successfully redirected to app");
+          await page.waitForURL('https://boldspace.societies.io/**', { timeout: 30000 });
+          console.error("[sim] ✅ Successfully redirected to boldspace app");
         } catch (redirectErr) {
           console.error(`[sim] ❌ Redirect timeout: ${redirectErr.message}`);
           console.error("[sim] Current URL:", page.url());
           // Try to navigate back to app manually
           try {
-            await page.goto('https://app.societies.io', { waitUntil: 'domcontentloaded', timeout: 30000 });
-            console.error("[sim] ✅ Manual navigation to app successful");
+            await page.goto('https://boldspace.societies.io/experiments/new', { waitUntil: 'domcontentloaded', timeout: 30000 });
+            console.error("[sim] ✅ Manual navigation to boldspace app successful");
           } catch (navErr) {
             console.error(`[sim] ❌ Manual navigation failed: ${navErr.message}`);
             throw new Error(`Google login redirect failed: ${redirectErr.message}`);
