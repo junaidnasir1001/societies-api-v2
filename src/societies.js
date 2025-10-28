@@ -63,39 +63,43 @@ export async function runSimulation(page, { society, template, inputText, simula
     console.error("[sim] Google login required - clicking 'Continue with Google'...");
     await ssoBtn.click({ timeout: 10000 });
     console.error("[sim] SSO clicked, waiting for Google login page...");
-    
-    // Wait for Google login page
-    await page.waitForLoadState("domcontentloaded", { timeout: 30000 });
+
+    // Wait until we hit accounts.google.com
+    try {
+      await page.waitForURL(/accounts\.google\.com/i, { timeout: 45000 });
+    } catch {}
+
+    await page.waitForLoadState("domcontentloaded", { timeout: 30000 }).catch(() => {});
     
     // Check if Google login is needed (might already be logged in)
     console.error("[sim] Checking if Google login is required...");
-    const emailInput = page.getByRole('textbox', { name: /email or phone/i });
+    const emailInput = page.locator('input[type="email"], input[name="identifier"], input[autocomplete="username"], input[aria-label*="email" i]');
 
     if (await emailInput.count() > 0 && email && password) {
       console.error("[sim] Google login required, filling credentials...");
       
       // Fill email with more robust approach
       try {
-        await emailInput.waitFor({ timeout: 10000, state: 'visible' });
-        await emailInput.clear();
-        await emailInput.fill(email, { timeout: 10000 });
+        await emailInput.first().waitFor({ timeout: 15000, state: 'visible' });
+        await emailInput.first().fill('', { timeout: 10000 }).catch(() => {});
+        await emailInput.first().fill(email, { timeout: 10000 });
         console.error(`[sim] ✅ Email filled: ${email}`);
         
         // Wait a bit for the field to register the input
         await page.waitForTimeout(1000);
         
         // Click Next button
-        const nextBtn = page.getByRole('button', { name: 'Next' });
-        await nextBtn.waitFor({ timeout: 10000, state: 'visible' });
-        await nextBtn.click({ timeout: 10000 });
+        const nextBtn = page.getByRole('button', { name: /next/i });
+        await nextBtn.first().waitFor({ timeout: 15000, state: 'visible' });
+        await nextBtn.first().click({ timeout: 15000 });
         console.error("[sim] ✅ Next button clicked");
       } catch (emailErr) {
         console.error(`[sim] ❌ Email filling failed: ${emailErr.message}`);
         // Try alternative approach
         try {
-          await emailInput.click();
+          await emailInput.first().click();
           await page.waitForTimeout(500);
-          await emailInput.fill(email);
+          await emailInput.first().fill(email);
           await page.waitForTimeout(1000);
           await page.keyboard.press('Enter');
           console.error("[sim] ✅ Email filled with alternative method");
@@ -106,37 +110,44 @@ export async function runSimulation(page, { society, template, inputText, simula
       }
       
       // Fill password with more robust approach
-      await page.waitForTimeout(3000); // Wait longer for password page to load
-      
+      await page.waitForTimeout(3000);
+
+      // Sometimes Google serves password within an iframe or different document
+      const getGoogleFrame = () => {
+        const frames = page.frames();
+        for (const f of frames) {
+          const url = f.url() || '';
+          if (/accounts\.google\.com/i.test(url)) return f;
+        }
+        return page.mainFrame();
+      };
+
       try {
-        const passwordInput = page.getByRole('textbox', { name: /enter your password/i });
-        await passwordInput.waitFor({ timeout: 30000, state: 'visible' });
-        await passwordInput.clear();
-        await passwordInput.fill(password, { timeout: 10000 });
+        const frame = getGoogleFrame();
+        const pwLocator = frame.locator('input[type="password"], input[name="Passwd"], input[aria-label*="password" i]');
+        await pwLocator.first().waitFor({ timeout: 35000, state: 'visible' });
+        await pwLocator.first().fill('', { timeout: 10000 }).catch(() => {});
+        await pwLocator.first().fill(password, { timeout: 15000 });
         console.error("[sim] ✅ Password filled");
-        
-        // Wait a bit for the field to register the input
-        await page.waitForTimeout(1000);
-        
-        // Click Next button
-        const nextBtn = page.getByRole('button', { name: 'Next' });
-        await nextBtn.waitFor({ timeout: 10000, state: 'visible' });
-        await nextBtn.click({ timeout: 10000 });
-        console.error("[sim] ✅ Password Next button clicked");
+
+        await page.waitForTimeout(800);
+
+        const nextBtn = frame.getByRole('button', { name: /next/i });
+        if (await nextBtn.count()) {
+          await nextBtn.first().click({ timeout: 15000 }).catch(() => {});
+        } else {
+          await page.keyboard.press('Enter');
+        }
+        console.error("[sim] ✅ Password Next submitted");
       } catch (passwordErr) {
         console.error(`[sim] ❌ Password filling failed: ${passwordErr.message}`);
-        // Try alternative approach
+        // Final fallback: try pressing Enter a few times to advance
         try {
-          const passwordInput = page.locator('input[type="password"]');
-          await passwordInput.waitFor({ timeout: 30000, state: 'visible' });
-          await passwordInput.fill(password);
-          await page.waitForTimeout(1000);
           await page.keyboard.press('Enter');
-          console.error("[sim] ✅ Password filled with alternative method");
-        } catch (altErr) {
-          console.error(`[sim] ❌ Alternative password method failed: ${altErr.message}`);
-          throw new Error(`Could not fill password field: ${passwordErr.message}`);
-        }
+          await page.waitForTimeout(1500);
+          await page.keyboard.press('Enter');
+        } catch {}
+        throw new Error(`Could not fill password field: ${passwordErr.message}`);
       }
       
       console.error("[sim] Google login submitted, waiting for redirect...");
@@ -219,6 +230,14 @@ export async function runSimulation(page, { society, template, inputText, simula
     await page.waitForLoadState('networkidle', { timeout: 60000 }).catch(() => {});
     await page.waitForTimeout(3000);
 
+    // Avoid Google language selector if it's present on the page
+    try {
+      const langSelect = page.locator('select[name="hl"]');
+      if (await langSelect.count()) {
+        console.error('[sim] ⚠️ Google language selector detected; ignoring it');
+      }
+    } catch {}
+
     let contentTypeSelector = null;
 
     // Strategy 1: original parent-filtered combobox
@@ -231,16 +250,31 @@ export async function runSimulation(page, { society, template, inputText, simula
       if (await byLabel.count()) contentTypeSelector = byLabel;
     }
 
-    // Strategy 3: first combobox on the page
+    // Strategy 3: first combobox on the page that is not a language select
     if (!contentTypeSelector) {
-      const firstCombo = page.getByRole('combobox').first();
-      if (await firstCombo.count()) contentTypeSelector = firstCombo;
+      const combos = page.getByRole('combobox');
+      const count = await combos.count();
+      for (let i = 0; i < count; i++) {
+        const candidate = combos.nth(i);
+        // Skip known language selector patterns
+        const nameAttr = (await candidate.getAttribute('name')) || '';
+        if (/^hl$/i.test(nameAttr)) continue;
+        contentTypeSelector = candidate;
+        break;
+      }
     }
 
-    // Strategy 4: generic first <select>
+    // Strategy 4: generic first <select> that is not name=hl
     if (!contentTypeSelector) {
-      const firstSelect = page.locator('select').first();
-      if (await firstSelect.count()) contentTypeSelector = firstSelect;
+      const selects = page.locator('select');
+      const scount = await selects.count();
+      for (let i = 0; i < scount; i++) {
+        const s = selects.nth(i);
+        const nameAttr = (await s.getAttribute('name')) || '';
+        if (/^hl$/i.test(nameAttr)) continue;
+        contentTypeSelector = s;
+        break;
+      }
     }
 
     if (!contentTypeSelector) throw new Error('No content-type selector found');
@@ -259,8 +293,14 @@ export async function runSimulation(page, { society, template, inputText, simula
       const listOptions = page.locator('[role="listbox"] [role="option"]');
       const listCount = await listOptions.count().catch(() => 0);
       if (listCount > 0) {
-        console.error(`[sim] Found ARIA listbox with ${listCount} options (clicking first)`);
-        await listOptions.first().click().catch(() => {});
+        console.error(`[sim] Found ARIA listbox with ${listCount} options`);
+        // Prefer expected labels to avoid wrong menus
+        const preferred = await listOptions.filter({ hasText: /Ad headline|Email subject/i }).first();
+        if (await preferred.count()) {
+          await preferred.click().catch(() => {});
+        } else {
+          await listOptions.first().click().catch(() => {});
+        }
       } else {
         console.error('[sim] No ARIA listbox detected; waiting extra 3s for options...');
         await page.waitForTimeout(3000);
@@ -280,7 +320,7 @@ export async function runSimulation(page, { society, template, inputText, simula
     } catch (e1) {
       console.error(`[sim] ⚠️ select by value failed: ${e1.message}, trying by label...`);
       try {
-        await contentTypeSelector.selectOption({ label: /Ad|Email/i });
+        await contentTypeSelector.selectOption({ label: /Ad headline|Email subject/i });
         console.error('[sim] ✅ Selected content type by label');
       } catch (e2) {
         console.error(`[sim] ⚠️ select by label failed: ${e2.message}, trying index 1...`);
@@ -337,8 +377,26 @@ export async function runSimulation(page, { society, template, inputText, simula
   console.error(`[sim] Mapping society "${society}" to audience "${audienceValue}"`);
   
   try {
-    const audienceSelector = page.getByRole('combobox').nth(1);
-    await audienceSelector.waitFor({ timeout: 10000, state: 'visible' });
+    // Prefer a combobox/select near a label mentioning audience
+    let audienceSelector = null;
+    const byLabel = page.getByLabel(/Target\s*audience|Audience/i, { exact: false }).first();
+    if (await byLabel.count()) audienceSelector = byLabel;
+    if (!audienceSelector) {
+      // Fallback: second combobox that is not a language selector
+      const combos = page.getByRole('combobox');
+      const count = await combos.count();
+      let seen = 0;
+      for (let i = 0; i < count; i++) {
+        const c = combos.nth(i);
+        const nameAttr = (await c.getAttribute('name')) || '';
+        if (/^hl$/i.test(nameAttr)) continue;
+        seen++;
+        if (seen === 2) { audienceSelector = c; break; }
+      }
+    }
+    if (!audienceSelector) throw new Error('No audience selector found');
+
+    await audienceSelector.waitFor({ timeout: 15000, state: 'visible' });
     
     // Debug: Log available options
     const audienceOptions = await audienceSelector.locator('option').allTextContents();

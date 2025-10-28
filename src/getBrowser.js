@@ -15,9 +15,14 @@ export async function getBrowser() {
   console.error("[session] USER_DATA_DIR=", USER_DATA_DIR);
   console.error("[session] storageState exists=", fs.existsSync(STORAGE_STATE));
 
+  // Headless mode configurable via env (HEADLESS/PLAYWRIGHT_HEADLESS)
+  const headlessEnv = process.env.HEADLESS ?? process.env.PLAYWRIGHT_HEADLESS ?? "true";
+  const headless = /^(1|true|yes)$/i.test(String(headlessEnv));
+  console.error(`[session] headless=`, headless);
+
   // One real Chrome profile shared by CLI & Claude Desktop
   const context = await chromium.launchPersistentContext(USER_DATA_DIR, {
-    headless: true,                  // headful mode to see automation in action
+    headless,
     viewport: { width: 1280, height: 800 },
     ignoreHTTPSErrors: true,
     userAgent:
@@ -30,9 +35,15 @@ export async function getBrowser() {
       "--disable-dev-shm-usage",
       "--disable-gpu",
       "--use-gl=swiftshader",
+      "--disable-software-rasterizer",
+      "--no-zygote",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-extensions",
+      "--disable-features=TranslateUI,site-per-process,SameSiteByDefaultCookies,CookiesWithoutSameSiteMustBeSecure",
+      "--force-color-profile=srgb",
       "--window-size=1280,800",
       "--disable-blink-features=AutomationControlled",
-      "--disable-features=SameSiteByDefaultCookies,CookiesWithoutSameSiteMustBeSecure",
       "--host-resolver-rules=MAP app.societies.io 52.74.6.109,MAP supa.societies.io 104.18.38.10,MAP aaeijppikwalijkoingt.supabase.co 104.18.38.10"
     ],
   });
