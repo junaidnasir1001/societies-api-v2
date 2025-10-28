@@ -31,7 +31,7 @@ export async function runSimulation(page, { society, template, inputText, simula
   await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {});
   
   // Wait for form to be ready
-  await page.waitForTimeout(3000);
+  await page.waitForTimeout(8000);
   
   // Check if we need Google login (new UI change)
   console.error("[sim] Checking for Google login requirement...");
@@ -176,6 +176,11 @@ export async function runSimulation(page, { society, template, inputText, simula
   // Step 1: Select content type
   console.error("[sim] Selecting content type...");
   
+  // Extra wait before trying to select content type (server React hydration)
+  await page.waitForTimeout(5000);
+  await page.waitForSelector('text=/Content type/i', { timeout: 30000, state: 'visible' }).catch(() => {});
+  await page.waitForTimeout(2000);
+  
   // Map template to content type dropdown value (using actual dropdown values)
   const contentTypeMapping = {
     'Article': 'email_subject',
@@ -193,25 +198,80 @@ export async function runSimulation(page, { society, template, inputText, simula
   console.error(`[sim] Mapping template "${template}" to content type value "${contentTypeValue}"`);
   
   try {
-    // Use first() to get the first combobox (content type selector)
-    const contentTypeSelector = page.locator('div').filter({ hasText: /^Content type/ }).getByRole('combobox').first();
-    await contentTypeSelector.waitFor({ timeout: 10000, state: 'visible' });
-    
-    // Debug: Log available options
-    const options = await contentTypeSelector.locator('option').allTextContents();
-    console.error(`[sim] Available content type options: ${JSON.stringify(options)}`);
-    
-    // Try to select the option by value, with fallback to first available option
+    // Wait for the label to exist somewhere on the page
+    const contentTypeLabel = page.getByText(/^Content type/i).first();
+    await contentTypeLabel.waitFor({ timeout: 30000, state: 'attached' });
+
+    // Strategy A: ARIA-labelled combobox
+    let contentTypeSelector = page.getByRole('combobox', { name: /content type/i }).first();
     try {
-      await contentTypeSelector.selectOption({ value: contentTypeValue });
-      console.error(`[sim] ✅ Selected content type: ${contentTypeValue}`);
-    } catch (selectErr) {
-      console.error(`[sim] ⚠️ Could not select "${contentTypeValue}", trying first available option`);
-      await contentTypeSelector.selectOption({ index: 1 }); // Skip first option (usually placeholder)
-      console.error(`[sim] ✅ Selected first available content type option`);
+      await contentTypeSelector.scrollIntoViewIfNeeded();
+      await contentTypeSelector.waitFor({ timeout: 15000, state: 'visible' });
+    } catch {
+      // Strategy B: Find select/combobox near the label
+      const container = contentTypeLabel.locator('xpath=..');
+      const nearby = container.locator('select, [role="combobox"], input[role="combobox"]').first();
+      await nearby.scrollIntoViewIfNeeded();
+      await nearby.waitFor({ timeout: 20000, state: 'visible' });
+      contentTypeSelector = nearby;
+    }
+
+    // Try native <select> first
+    const isSelect = await contentTypeSelector.evaluate(el => el && el.tagName && el.tagName.toLowerCase() === 'select').catch(() => false);
+    if (isSelect) {
+      // Debug: Log available options
+      const options = await contentTypeSelector.locator('option').allTextContents();
+      console.error(`[sim] Available content type options: ${JSON.stringify(options)}`);
+
+      try {
+        await contentTypeSelector.selectOption({ value: contentTypeValue });
+        console.error(`[sim] ✅ Selected content type by value: ${contentTypeValue}`);
+      } catch (selectByValueErr) {
+        // Fallback by label text mapping
+        const labelMap = {
+          meta_ad: /ad|meta/i,
+          email_subject: /email subject/i
+        };
+        const labelRegex = labelMap[contentTypeValue] || /.*/;
+        try {
+          await contentTypeSelector.selectOption({ label: labelRegex });
+          console.error(`[sim] ✅ Selected content type by label regex: ${labelRegex}`);
+        } catch (selectByLabelErr) {
+          console.error(`[sim] ⚠️ Could not select by value or label, trying index fallback`);
+          await contentTypeSelector.selectOption({ index: 1 });
+          console.error(`[sim] ✅ Selected first available content type option`);
+        }
+      }
+    } else {
+      // Custom combobox: click to open and choose an option in the popup list
+      await contentTypeSelector.click({ timeout: 10000 });
+
+      // Try multiple option locator strategies
+      const valueSelector = page.locator(`[data-value="${contentTypeValue}"]`).first();
+      const labelRegex = contentTypeValue === 'meta_ad' ? /Ad|Meta/i : /Email Subject/i;
+      const roleOption = page.getByRole('option', { name: labelRegex }).first();
+      const textOption = page.locator('div, li, span').filter({ hasText: labelRegex }).first();
+
+      let clicked = false;
+      for (const opt of [valueSelector, roleOption, textOption]) {
+        try {
+          await opt.waitFor({ timeout: 10000, state: 'visible' });
+          await opt.click({ timeout: 10000 });
+          clicked = true;
+          console.error(`[sim] ✅ Selected content type via custom dropdown`);
+          break;
+        } catch {}
+      }
+      if (!clicked) {
+        throw new Error('No matching option visible in custom dropdown');
+      }
     }
   } catch (contentTypeErr) {
     console.error(`[sim] ❌ Could not select content type: ${contentTypeErr.message}`);
+    try {
+      await page.screenshot({ path: '/tmp/content-type-error.png', fullPage: true });
+      console.error("[sim] 📸 Screenshot saved to /tmp/content-type-error.png");
+    } catch {}
     throw new Error(`Could not select content type: ${contentTypeErr.message}`);
   }
   
