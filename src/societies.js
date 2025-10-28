@@ -25,6 +25,14 @@ export async function runSimulation(page, { society, template, inputText, simula
   
   try {
     // Ensure at least one control is present before strategies
+    await page.waitForLoadState('networkidle', { timeout: 90000 }).catch(() => {});
+    await page.waitForTimeout(4000);
+    try {
+      await page.waitForSelector('text=/Content\\s*type/i', { timeout: 15000 });
+      console.error("[sim] Found 'Content type' text on page");
+    } catch {
+      console.error("[sim] 'Content type' text not found in 15s; trying generic combobox/select");
+    }
     await page.waitForSelector('select, [role="combobox"]', { timeout: 20000 }).catch(() => {});
     // Go directly to new UI
     await page.goto("https://boldspace.societies.io/experiments/new", { waitUntil: "domcontentloaded", timeout: 90000 });
@@ -38,6 +46,14 @@ export async function runSimulation(page, { society, template, inputText, simula
   // Ensure at least some form controls render before proceeding (no domain switch)
   await page.waitForSelector('select, [role="combobox"]', { timeout: 15000 }).catch(() => {});
   
+  // Early server-side capture to verify hydration
+  try {
+    const earlyHtml = await page.content();
+    await page.screenshot({ path: '/tmp/societies-early.png', fullPage: true }).catch(() => {});
+    console.error(`[sim] 🔍 early title=${await page.title()} url=${page.url()}`);
+    console.error(`[sim] 🔍 early body contains 'Content type' = ${/Content\\s*type/i.test(earlyHtml)}`);
+  } catch {}
+
   // Check if we need Google login (new UI change)
   console.error("[sim] Checking for Google login requirement...");
   const ssoBtn = page.getByRole('button', { name: 'Continue with Google' });

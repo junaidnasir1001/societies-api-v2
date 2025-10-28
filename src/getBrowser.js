@@ -20,6 +20,7 @@ export async function getBrowser() {
     headless: true,                  // headful mode to see automation in action
     viewport: { width: 1280, height: 800 },
     args: [
+      "--no-sandbox",
       "--disable-blink-features=AutomationControlled",
       "--disable-features=SameSiteByDefaultCookies,CookiesWithoutSameSiteMustBeSecure",
       "--host-resolver-rules=MAP app.societies.io 52.74.6.109,MAP supa.societies.io 104.18.38.10,MAP aaeijppikwalijkoingt.supabase.co 104.18.38.10"
