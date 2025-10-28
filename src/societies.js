@@ -35,19 +35,8 @@ export async function runSimulation(page, { society, template, inputText, simula
   // Wait for form to be ready
   await page.waitForTimeout(3000);
 
-  // Fallback: if no form controls rendered, try primary domain
-  try {
-    await page.waitForSelector('select, [role="combobox"]', { timeout: 15000 });
-  } catch {
-    console.error("[sim] Fallback: no form controls yet, switching to app.societies.io");
-    try {
-      await page.goto("https://app.societies.io/experiments/new", { waitUntil: "domcontentloaded", timeout: 90000 });
-      await page.waitForLoadState("networkidle", { timeout: 60000 }).catch(() => {});
-      await page.waitForTimeout(4000);
-    } catch (navErr) {
-      console.error(`[sim] Fallback navigation failed: ${navErr.message}`);
-    }
-  }
+  // Ensure at least some form controls render before proceeding (no domain switch)
+  await page.waitForSelector('select, [role="combobox"]', { timeout: 15000 }).catch(() => {});
   
   // Check if we need Google login (new UI change)
   console.error("[sim] Checking for Google login requirement...");
