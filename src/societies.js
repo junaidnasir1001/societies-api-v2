@@ -193,25 +193,76 @@ export async function runSimulation(page, { society, template, inputText, simula
   console.error(`[sim] Mapping template "${template}" to content type value "${contentTypeValue}"`);
   
   try {
-    // Use first() to get the first combobox (content type selector)
-    const contentTypeSelector = page.locator('div').filter({ hasText: /^Content type/ }).getByRole('combobox').first();
-    await contentTypeSelector.waitFor({ timeout: 10000, state: 'visible' });
-    
-    // Debug: Log available options
-    const options = await contentTypeSelector.locator('option').allTextContents();
-    console.error(`[sim] Available content type options: ${JSON.stringify(options)}`);
-    
-    // Try to select the option by value, with fallback to first available option
+    // Allow form to hydrate more in headless/server env
+    await page.waitForLoadState('networkidle', { timeout: 60000 }).catch(() => {});
+    await page.waitForTimeout(3000);
+
+    let contentTypeSelector = null;
+
+    // Strategy 1: original parent-filtered combobox
+    const byParentCombo = page.locator('div').filter({ hasText: /Content\s*type/i }).getByRole('combobox').first();
+    if (await byParentCombo.count()) contentTypeSelector = byParentCombo;
+
+    // Strategy 2: label-based selector
+    if (!contentTypeSelector) {
+      const byLabel = page.getByLabel(/Content\s*type/i, { exact: false }).first();
+      if (await byLabel.count()) contentTypeSelector = byLabel;
+    }
+
+    // Strategy 3: first combobox on the page
+    if (!contentTypeSelector) {
+      const firstCombo = page.getByRole('combobox').first();
+      if (await firstCombo.count()) contentTypeSelector = firstCombo;
+    }
+
+    // Strategy 4: generic first <select>
+    if (!contentTypeSelector) {
+      const firstSelect = page.locator('select').first();
+      if (await firstSelect.count()) contentTypeSelector = firstSelect;
+    }
+
+    if (!contentTypeSelector) throw new Error('No content-type selector found');
+
+    await contentTypeSelector.scrollIntoViewIfNeeded().catch(() => {});
+    await contentTypeSelector.waitFor({ timeout: 20000, state: 'visible' });
+
+    // Ensure options populated
+    let optionCount = 0;
+    try { optionCount = await contentTypeSelector.locator('option').count(); } catch {}
+    if (optionCount === 0) {
+      console.error('[sim] No <option> yet, waiting extra 3s...');
+      await page.waitForTimeout(3000);
+    }
+
+    // Debug: Log available options (best-effort)
+    try {
+      const options = await contentTypeSelector.locator('option').allTextContents();
+      console.error(`[sim] Available content type options: ${JSON.stringify(options)}`);
+    } catch {}
+
+    // Select by value → label → index
     try {
       await contentTypeSelector.selectOption({ value: contentTypeValue });
       console.error(`[sim] ✅ Selected content type: ${contentTypeValue}`);
-    } catch (selectErr) {
-      console.error(`[sim] ⚠️ Could not select "${contentTypeValue}", trying first available option`);
-      await contentTypeSelector.selectOption({ index: 1 }); // Skip first option (usually placeholder)
-      console.error(`[sim] ✅ Selected first available content type option`);
+    } catch (e1) {
+      console.error(`[sim] ⚠️ select by value failed: ${e1.message}, trying by label...`);
+      try {
+        await contentTypeSelector.selectOption({ label: /Ad|Email/i });
+        console.error('[sim] ✅ Selected content type by label');
+      } catch (e2) {
+        console.error(`[sim] ⚠️ select by label failed: ${e2.message}, trying index 1...`);
+        await contentTypeSelector.selectOption({ index: 1 }).catch(() => {});
+      }
     }
   } catch (contentTypeErr) {
     console.error(`[sim] ❌ Could not select content type: ${contentTypeErr.message}`);
+    // Debug aids for server environment
+    try {
+      const htmlSnippet = (await page.content()).slice(0, 2000);
+      console.error(`[sim] 🔍 DOM snippet: ${htmlSnippet}`);
+      await page.screenshot({ path: `/tmp/societies-content-type-fail.png`, fullPage: true }).catch(() => {});
+      console.error('[sim] 📸 Saved screenshot to /tmp/societies-content-type-fail.png');
+    } catch {}
     throw new Error(`Could not select content type: ${contentTypeErr.message}`);
   }
   
