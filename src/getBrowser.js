@@ -26,6 +26,44 @@ export async function getBrowser() {
     ],
   });
 
+  // If a storage state file exists, hydrate cookies and localStorage into the persistent context
+  try {
+    if (fs.existsSync(STORAGE_STATE)) {
+      console.error("[session] Loading storage state from", STORAGE_STATE);
+      const raw = fs.readFileSync(STORAGE_STATE, "utf-8");
+      const state = JSON.parse(raw);
+
+      // Restore cookies
+      if (Array.isArray(state.cookies) && state.cookies.length > 0) {
+        await context.addCookies(state.cookies);
+        console.error(`[session] Restored ${state.cookies.length} cookies`);
+      }
+
+      // Restore localStorage per-origin
+      if (Array.isArray(state.origins)) {
+        for (const origin of state.origins) {
+          if (!origin?.origin) continue;
+          const temp = await context.newPage();
+          try {
+            await temp.goto(origin.origin, { waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => {});
+            if (Array.isArray(origin.localStorage) && origin.localStorage.length > 0) {
+              await temp.evaluate((items) => {
+                for (const { name, value } of items) {
+                  try { localStorage.setItem(name, value); } catch {}
+                }
+              }, origin.localStorage);
+              console.error(`[session] Restored ${origin.localStorage.length} localStorage items for ${origin.origin}`);
+            }
+          } finally {
+            await temp.close().catch(() => {});
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error("[session] ⚠️ Failed to apply storage state:", e.message);
+  }
+
   const page = await context.newPage();
   return { context, page, mode: "local-persistent" };
 }
