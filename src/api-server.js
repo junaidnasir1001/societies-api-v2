@@ -140,7 +140,13 @@ function apiKeyAuth(req, res, next) {
     return next();
   }
   
-  const providedKey = req.headers['x-api-key'] || req.query.api_key;
+  // Accept API key via X-API-Key header, api_key query, or Authorization: Bearer <key>
+  let providedKey = req.headers['x-api-key'] || req.query.api_key;
+  if (!providedKey && req.headers['authorization']) {
+    const auth = String(req.headers['authorization']);
+    const m = auth.match(/^Bearer\s+(.+)$/i);
+    if (m) providedKey = m[1];
+  }
   
   if (!providedKey) {
     return res.status(401).json({
