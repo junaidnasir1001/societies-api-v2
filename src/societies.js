@@ -36,13 +36,14 @@ export async function runSimulation(page, { society, template, inputText, simula
     await page.waitForSelector('select, [role="combobox"]', { timeout: 20000 }).catch(() => {});
     // Go directly to new UI
     await page.goto("https://boldspace.societies.io/experiments/new", { waitUntil: "domcontentloaded", timeout: 90000 });
-
+  
   console.error("[sim] Waiting for page to load...");
-  await page.waitForLoadState("networkidle", { timeout: 60000 }).catch(() => {});
-
-  // Wait for form to be ready
-  await page.waitForTimeout(3000);
-
+  await page.waitForLoadState("domcontentloaded", { timeout: 90000 }).catch(() => {});
+  await page.waitForLoadState("networkidle", { timeout: 90000 }).catch(() => {});
+  
+  // Wait for form to be ready (extra on server)
+  await page.waitForTimeout(5000);
+  
   // Ensure at least some form controls render before proceeding (no domain switch)
   await page.waitForSelector('select, [role="combobox"]', { timeout: 15000 }).catch(() => {});
   
@@ -257,10 +258,10 @@ export async function runSimulation(page, { society, template, inputText, simula
 
     // Debug: Log available options (best-effort)
     try {
-      const options = await contentTypeSelector.locator('option').allTextContents();
-      console.error(`[sim] Available content type options: ${JSON.stringify(options)}`);
+    const options = await contentTypeSelector.locator('option').allTextContents();
+    console.error(`[sim] Available content type options: ${JSON.stringify(options)}`);
     } catch {}
-
+    
     // Select by value → label → index
     try {
       await contentTypeSelector.selectOption({ value: contentTypeValue });
