@@ -248,12 +248,23 @@ export async function runSimulation(page, { society, template, inputText, simula
     await contentTypeSelector.scrollIntoViewIfNeeded().catch(() => {});
     await contentTypeSelector.waitFor({ timeout: 20000, state: 'visible' });
 
-    // Ensure options populated
+    // Ensure options populated or open ARIA popup
     let optionCount = 0;
     try { optionCount = await contentTypeSelector.locator('option').count(); } catch {}
     if (optionCount === 0) {
-      console.error('[sim] No <option> yet, waiting extra 3s...');
-      await page.waitForTimeout(3000);
+      console.error('[sim] No native <option> yet, opening dropdown...');
+      await contentTypeSelector.click({ timeout: 5000 }).catch(() => {});
+      await page.waitForTimeout(700);
+      // Try ARIA listbox rendered in portal
+      const listOptions = page.locator('[role="listbox"] [role="option"]');
+      const listCount = await listOptions.count().catch(() => 0);
+      if (listCount > 0) {
+        console.error(`[sim] Found ARIA listbox with ${listCount} options (clicking first)`);
+        await listOptions.first().click().catch(() => {});
+      } else {
+        console.error('[sim] No ARIA listbox detected; waiting extra 3s for options...');
+        await page.waitForTimeout(3000);
+      }
     }
 
     // Debug: Log available options (best-effort)
@@ -262,7 +273,7 @@ export async function runSimulation(page, { society, template, inputText, simula
     console.error(`[sim] Available content type options: ${JSON.stringify(options)}`);
     } catch {}
     
-    // Select by value → label → index
+    // Select by value → label → index → keyboard
     try {
       await contentTypeSelector.selectOption({ value: contentTypeValue });
       console.error(`[sim] ✅ Selected content type: ${contentTypeValue}`);
@@ -273,7 +284,20 @@ export async function runSimulation(page, { society, template, inputText, simula
         console.error('[sim] ✅ Selected content type by label');
       } catch (e2) {
         console.error(`[sim] ⚠️ select by label failed: ${e2.message}, trying index 1...`);
-        await contentTypeSelector.selectOption({ index: 1 }).catch(() => {});
+        try {
+          await contentTypeSelector.selectOption({ index: 1 });
+          console.error('[sim] ✅ Selected content type by index');
+        } catch (e3) {
+          console.error(`[sim] ⚠️ index select failed: ${e3.message}, trying keyboard...`);
+          try {
+            await contentTypeSelector.click();
+            await page.keyboard.press('ArrowDown');
+            await page.keyboard.press('Enter');
+            console.error('[sim] ✅ Selected content type via keyboard');
+          } catch (e4) {
+            throw new Error(`All selection strategies failed: ${e4.message}`);
+          }
+        }
       }
     }
   } catch (contentTypeErr) {

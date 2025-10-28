@@ -19,6 +19,11 @@ export async function getBrowser() {
   const context = await chromium.launchPersistentContext(USER_DATA_DIR, {
     headless: true,                  // headful mode to see automation in action
     viewport: { width: 1280, height: 800 },
+    ignoreHTTPSErrors: true,
+    userAgent:
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    locale: "en-GB",
+    timezoneId: "Europe/London",
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
@@ -31,6 +36,37 @@ export async function getBrowser() {
       "--host-resolver-rules=MAP app.societies.io 52.74.6.109,MAP supa.societies.io 104.18.38.10,MAP aaeijppikwalijkoingt.supabase.co 104.18.38.10"
     ],
   });
+
+  // Anti-bot hardening
+  try {
+    await context.addInitScript(() => {
+      // Pretend navigator.webdriver is false
+      Object.defineProperty(navigator, 'webdriver', { get: () => false });
+      // Mock chrome object
+      // @ts-ignore
+      window.chrome = window.chrome || {};
+      // @ts-ignore
+      window.chrome.runtime = window.chrome.runtime || {};
+      // Permissions query patch
+      const originalQuery = navigator.permissions && navigator.permissions.query;
+      if (originalQuery) {
+        navigator.permissions.query = (parameters) =>
+          parameters.name === 'notifications'
+            ? Promise.resolve({ state: Notification.permission })
+            : originalQuery(parameters);
+      }
+      // WebGL fingerprint stability
+      try {
+        const getParameter = WebGLRenderingContext.prototype.getParameter;
+        WebGLRenderingContext.prototype.getParameter = function(parameter) {
+          // UNMASKED_VENDOR_WEBGL / UNMASKED_RENDERER_WEBGL
+          if (parameter === 37445) return 'Google Inc.';
+          if (parameter === 37446) return 'SwiftShader';
+          return getParameter.call(this, parameter);
+        };
+      } catch {}
+    });
+  } catch {}
 
   const page = await context.newPage();
   return { context, page, mode: "local-persistent" };
