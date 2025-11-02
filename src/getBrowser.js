@@ -7,63 +7,109 @@ import {
   ensureSessionDirs,
 } from "./sessionPaths.js";
 
+// Global reference to track current browser context
+let currentContext = null;
+let isGettingBrowser = false;
+
 export async function getBrowser() {
-  ensureSessionDirs();
-
-  console.error("[session] cwd=", process.cwd());
-  console.error("[session] SESSION_HOME=", SESSION_HOME);
-  console.error("[session] USER_DATA_DIR=", USER_DATA_DIR);
-  console.error("[session] storageState exists=", fs.existsSync(STORAGE_STATE));
-
-  // One real Chrome profile shared by CLI & Claude Desktop
-  const context = await chromium.launchPersistentContext(USER_DATA_DIR, {
-    headless: false,                  // headful mode to see automation in action
-    viewport: { width: 1280, height: 800 },
-    args: [
-      "--disable-blink-features=AutomationControlled",
-      "--disable-features=SameSiteByDefaultCookies,CookiesWithoutSameSiteMustBeSecure",
-      "--host-resolver-rules=MAP app.societies.io 52.74.6.109,MAP supa.societies.io 104.18.38.10,MAP aaeijppikwalijkoingt.supabase.co 104.18.38.10"
-    ],
-  });
-
-  // If a storage state file exists, hydrate cookies and localStorage into the persistent context
+  // Wait if another call is in progress (mutex)
+  while (isGettingBrowser) {
+    console.error("[session] Waiting for previous browser acquisition...");
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  
+  isGettingBrowser = true;
+  
   try {
-    if (fs.existsSync(STORAGE_STATE)) {
-      console.error("[session] Loading storage state from", STORAGE_STATE);
-      const raw = fs.readFileSync(STORAGE_STATE, "utf-8");
-      const state = JSON.parse(raw);
-
-      // Restore cookies
-      if (Array.isArray(state.cookies) && state.cookies.length > 0) {
-        await context.addCookies(state.cookies);
-        console.error(`[session] Restored ${state.cookies.length} cookies`);
+    ensureSessionDirs();
+    
+    // Close any existing context before creating a new one (safety measure)
+    if (currentContext) {
+      try {
+        await currentContext.close();
+        console.error("[session] Closed previous browser context");
+        // Wait for lock file to be released by OS
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } catch (e) {
+        console.error("[session] ⚠️ Error closing previous context:", e.message);
       }
+      currentContext = null;
+    }
 
-      // Restore localStorage per-origin
-      if (Array.isArray(state.origins)) {
-        for (const origin of state.origins) {
-          if (!origin?.origin) continue;
-          const temp = await context.newPage();
-          try {
-            await temp.goto(origin.origin, { waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => {});
-            if (Array.isArray(origin.localStorage) && origin.localStorage.length > 0) {
-              await temp.evaluate((items) => {
-                for (const { name, value } of items) {
-                  try { localStorage.setItem(name, value); } catch {}
-                }
-              }, origin.localStorage);
-              console.error(`[session] Restored ${origin.localStorage.length} localStorage items for ${origin.origin}`);
+    console.error("[session] cwd=", process.cwd());
+    console.error("[session] SESSION_HOME=", SESSION_HOME);
+    console.error("[session] USER_DATA_DIR=", USER_DATA_DIR);
+    console.error("[session] storageState exists=", fs.existsSync(STORAGE_STATE));
+
+    // One real Chrome profile shared by CLI & Claude Desktop
+    const context = await chromium.launchPersistentContext(USER_DATA_DIR, {
+      headless: false,                  // headful mode to see automation in action
+      viewport: { width: 1280, height: 800 },
+      args: [
+        "--disable-blink-features=AutomationControlled",
+        "--disable-features=SameSiteByDefaultCookies,CookiesWithoutSameSiteMustBeSecure",
+        "--host-resolver-rules=MAP app.societies.io 52.74.6.109,MAP supa.societies.io 104.18.38.10,MAP aaeijppikwalijkoingt.supabase.co 104.18.38.10"
+      ],
+    });
+
+    // If a storage state file exists, hydrate cookies and localStorage into the persistent context
+    try {
+      if (fs.existsSync(STORAGE_STATE)) {
+        console.error("[session] Loading storage state from", STORAGE_STATE);
+        const raw = fs.readFileSync(STORAGE_STATE, "utf-8");
+        const state = JSON.parse(raw);
+
+        // Restore cookies
+        if (Array.isArray(state.cookies) && state.cookies.length > 0) {
+          await context.addCookies(state.cookies);
+          console.error(`[session] Restored ${state.cookies.length} cookies`);
+        }
+
+        // Restore localStorage per-origin
+        if (Array.isArray(state.origins)) {
+          for (const origin of state.origins) {
+            if (!origin?.origin) continue;
+            const temp = await context.newPage();
+            try {
+              await temp.goto(origin.origin, { waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => {});
+              if (Array.isArray(origin.localStorage) && origin.localStorage.length > 0) {
+                await temp.evaluate((items) => {
+                  for (const { name, value } of items) {
+                    try { localStorage.setItem(name, value); } catch {}
+                  }
+                }, origin.localStorage);
+                console.error(`[session] Restored ${origin.localStorage.length} localStorage items for ${origin.origin}`);
+              }
+            } finally {
+              await temp.close().catch(() => {});
             }
-          } finally {
-            await temp.close().catch(() => {});
           }
         }
       }
+    } catch (e) {
+      console.error("[session] ⚠️ Failed to apply storage state:", e.message);
     }
-  } catch (e) {
-    console.error("[session] ⚠️ Failed to apply storage state:", e.message);
-  }
 
-  const page = await context.newPage();
-  return { context, page, mode: "local-persistent" };
+    const page = await context.newPage();
+    
+    // Store reference to current context
+    currentContext = context;
+    
+    return { context, page, mode: "local-persistent" };
+  } finally {
+    isGettingBrowser = false;
+  }
+}
+
+// Export function to close current browser context
+export async function closeBrowser() {
+  if (currentContext) {
+    try {
+      await currentContext.close();
+      console.error("[session] Manually closed browser context");
+      currentContext = null;
+    } catch (e) {
+      console.error("[session] ⚠️ Error manually closing context:", e.message);
+    }
+  }
 }

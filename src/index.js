@@ -2,7 +2,7 @@ import "dotenv/config";
 import { googleLogin } from "./googleLogin.js";
 import { runSimulation } from "./societies.js";
 import Ajv from "ajv";
-import { getBrowser } from "./getBrowser.js";
+import { getBrowser, closeBrowser } from "./getBrowser.js";
 import { STORAGE_STATE } from "./sessionPaths.js";
 
 const ajv = new Ajv({ allErrors: true });
@@ -138,7 +138,10 @@ export async function run({
     return out;
   } finally {
     // Close context but profile persists on disk
-    try { await context?.close(); } catch {}
+    try { 
+      await context?.close(); 
+      await closeBrowser(); // Clear global reference
+    } catch {}
     console.error(`[done] mode=${mode} totalMs=${timingsMs.total}`);
   }
 }

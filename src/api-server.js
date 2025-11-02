@@ -15,6 +15,9 @@ const PORT = process.env.API_PORT || 3001;
 // NOTE: For production, replace with Redis/DB. This is sufficient for MCP polling.
 const jobs = new Map();
 
+// Global flag to prevent concurrent browser sessions
+let isProcessing = false;
+
 function generateJobId(prefix = 'job') {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -383,6 +386,26 @@ app.post('/api/societies/test-content', apiKeyAuth, async (req, res) => {
       });
     }
     
+    // Check if another simulation is currently processing
+    if (isProcessing) {
+      return res.status(503).json({
+        ok: false,
+        error: 'Another simulation is in progress. Please retry in 30 seconds.',
+        message: 'Only one simulation can run at a time due to browser session limits.',
+        retryAfter: 30,
+        inputs: {
+          societyName: finalSocietyName,
+          testType: finalTestType,
+          testString: finalTestString
+        },
+        results: null,
+        screenshots: null,
+      });
+    }
+    
+    // Set processing flag
+    isProcessing = true;
+    
     // Async mode: immediately return jobId and process in background
     if (mode === 'async') {
       const normalizedTestTypeForAsync = normalizeTestType(finalTestType);
@@ -460,6 +483,8 @@ app.post('/api/societies/test-content', apiKeyAuth, async (req, res) => {
           jobs.set(jobId, { ...jobs.get(jobId), status: 'done', updatedAt: new Date().toISOString(), result: response });
         } catch (err) {
           jobs.set(jobId, { ...jobs.get(jobId), status: 'failed', updatedAt: new Date().toISOString(), error: err.message });
+        } finally {
+          isProcessing = false;
         }
       })();
 
@@ -550,6 +575,8 @@ app.post('/api/societies/test-content', apiKeyAuth, async (req, res) => {
     // Return appropriate HTTP status based on error type
     const statusCode = error.message.includes('timeout') ? 408 : 500;
     res.status(statusCode).json(errorResponse);
+  } finally {
+    isProcessing = false;
   }
 });
 
@@ -607,6 +634,25 @@ app.post('/api/societies/test-content-batch', apiKeyAuth, async (req, res) => {
         results: null,
       });
     }
+    
+    // Check if another simulation is currently processing
+    if (isProcessing) {
+      return res.status(503).json({
+        ok: false,
+        error: 'Another simulation is in progress. Please retry in 30 seconds.',
+        message: 'Only one simulation can run at a time due to browser session limits.',
+        retryAfter: 30,
+        inputs: {
+          societyName,
+          testType,
+          testStrings: testStrings.length
+        },
+        results: null,
+      });
+    }
+    
+    // Set processing flag
+    isProcessing = true;
     
     // Normalize testType
     const normalizedTestType = normalizeTestType(testType);
@@ -723,6 +769,8 @@ app.post('/api/societies/test-content-batch', apiKeyAuth, async (req, res) => {
     // Return appropriate HTTP status based on error type
     const statusCode = error.message.includes('timeout') ? 408 : 500;
     res.status(statusCode).json(errorResponse);
+  } finally {
+    isProcessing = false;
   }
 });
 
