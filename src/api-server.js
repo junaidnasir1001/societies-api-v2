@@ -4,6 +4,8 @@ import express from 'express';
 import cors from 'cors';
 import { run } from './index.js';
 import dotenv from 'dotenv';
+import { setSseHeaders, writeEvent, startHeartbeat } from './lib/sse.js';
+import { runSocietiesTask } from './trigger/tasks/societiesTask.js';
 
 // Load environment variables
 dotenv.config();
@@ -27,12 +29,30 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Sentry init (optional, lazily import if DSN provided)
+let Sentry = { Handlers: { requestHandler: () => (req, res, next) => next() }, init: () => {}, captureException: () => {} };
+if (process.env.SENTRY_DSN) {
+  try {
+    const mod = await import('@sentry/node');
+    Sentry = mod;
+    Sentry.init({ dsn: process.env.SENTRY_DSN });
+    app.use(Sentry.Handlers.requestHandler());
+  } catch {}
+}
+
 // Request logging middleware
 app.use((req, res, next) => {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] ${req.method} ${req.path} - IP: ${req.ip}`);
   next();
 });
+
+// In-memory SSE streams map (Phase 1)
+const streams = new Map(); // streamId -> { res, heartbeat }
+
+function generateStreamId() {
+  return `stream_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
 
 // Normalize testType - supports ALL societies.io UI types + custom types
 function normalizeTestType(testType) {
@@ -182,6 +202,150 @@ app.get('/health', (req, res) => {
     version: '1.0.0',
     uptime: process.uptime(),
   });
+});
+
+// SSE Streaming endpoint (core)
+app.post('/api/societies/stream', apiKeyAuth, (req, res) => {
+  try {
+    // Prepare SSE
+    setSseHeaders(res);
+    const streamId = generateStreamId();
+    const heartbeat = startHeartbeat(res, 30000);
+    streams.set(streamId, { res, heartbeat });
+
+    // Connected event
+    writeEvent(res, { event: 'connected', data: { streamId } });
+
+    // Build input mapping consistent with legacy endpoint
+    const {
+      societyName, testType, testString, testStrings,
+      contentType, subjectLines, adHeadlines, targetAudience,
+    } = req.body || {};
+
+    const finalSocietyName = targetAudience || societyName;
+    const finalTestType = contentType || testType;
+    let finalTestString = testString;
+    if (testString && Array.isArray(testString)) finalTestString = testString.join('\n');
+    else if (testStrings && Array.isArray(testStrings)) finalTestString = testStrings.join('\n');
+    else if (subjectLines && Array.isArray(subjectLines)) finalTestString = subjectLines.join('\n');
+    else if (adHeadlines && Array.isArray(adHeadlines)) finalTestString = adHeadlines.join('\n');
+
+    if (!finalSocietyName || !finalTestType || !finalTestString) {
+      writeEvent(res, { event: 'error', data: { code: 'bad_request', message: 'Missing required fields' } });
+      res.end();
+      clearInterval(heartbeat);
+      streams.delete(streamId);
+      return;
+    }
+
+    // Normalize testType
+    const normalizedTestType = normalizeTestType(finalTestType);
+
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const progressWebhookUrl = `${baseUrl}/api/streams/${streamId}/progress`;
+
+    // Kick off task locally (can be replaced later with Trigger.dev invocation)
+    writeEvent(res, { event: 'progress', data: { percent: 1, message: 'Task started' } });
+
+    // Notify worker via any mechanism available. In this minimal scaffold we rely on Trigger.dev to invoke the task externally.
+    // Expected payload shape for the worker task implementation
+    const payload = {
+      streamId,
+      progressWebhookUrl,
+      mappedInput: {
+        societyName: finalSocietyName,
+        testType: normalizedTestType,
+        testString: finalTestString,
+      },
+    };
+
+    // Expose payload for logs (optional)
+    console.log('[SSE] Started stream', streamId);
+    console.log('[SSE] Progress webhook', progressWebhookUrl);
+
+    // Client disconnect cleanup: do not delete stream immediately
+    // Keep the stream entry so webhooks don't 404; just stop heartbeats
+    req.on('close', () => {
+      const entry = streams.get(streamId);
+      if (entry) {
+        try { clearInterval(entry.heartbeat); } catch {}
+        streams.set(streamId, { ...entry, disconnected: true });
+      }
+    });
+
+    // Run the task asynchronously; it will POST progress to the webhook during execution.
+    (async () => {
+      try {
+        const result = await runSocietiesTask(payload, console);
+        // Post final done event to webhook
+        await fetch(progressWebhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            streamId,
+            type: 'done',
+            result: { results: result.results },
+            meta: result.meta || { streamId },
+          }),
+        }).catch(() => {});
+      } catch (err) {
+        await fetch(progressWebhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            streamId,
+            type: 'error',
+            message: err?.message || 'Task failed',
+          }),
+        }).catch(() => {});
+      }
+    })();
+
+  } catch (error) {
+    Sentry.captureException?.(error);
+    try {
+      writeEvent(res, { event: 'error', data: { code: 'internal', message: error.message } });
+    } catch {}
+    try { res.end(); } catch {}
+  }
+});
+
+// Inbound progress webhook from worker/task
+app.post('/api/streams/:streamId/progress', express.json({ limit: '1mb' }), (req, res) => {
+  const { streamId } = req.params;
+  const entry = streams.get(streamId);
+  if (!entry) {
+    return res.status(404).json({ ok: false, error: 'stream_not_found' });
+  }
+  const { res: sse } = entry;
+  const { type, percent, message, data, result, meta } = req.body || {};
+
+  if (type === 'progress') {
+    // Only attempt to write if stream is still open
+    if (!sse.writableEnded) {
+      writeEvent(sse, { event: 'progress', data: { percent, message, data } });
+    }
+  } else if (type === 'error') {
+    if (!sse.writableEnded) {
+      writeEvent(sse, { event: 'error', data: { code: 'task_error', message: message || 'Task error' } });
+      try { sse.end(); } catch {}
+    }
+    try { clearInterval(entry.heartbeat); } catch {}
+    streams.delete(streamId);
+  } else if (type === 'done') {
+    if (!sse.writableEnded) {
+      writeEvent(sse, { event: 'done', data: { results: result?.results ?? result, meta } });
+      try { sse.end(); } catch {}
+    }
+    try { clearInterval(entry.heartbeat); } catch {}
+    streams.delete(streamId);
+  } else {
+    // default passthrough as log
+    if (!sse.writableEnded) {
+      writeEvent(sse, { event: 'log', data: { level: 'info', message: message || 'update' } });
+    }
+  }
+  res.json({ ok: true });
 });
 
 // API info endpoint
