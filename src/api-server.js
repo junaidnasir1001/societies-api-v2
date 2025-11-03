@@ -5,10 +5,17 @@ import cors from 'cors';
 import { run } from './index.js';
 import dotenv from 'dotenv';
 import { setSseHeaders, writeEvent, startHeartbeat } from './lib/sse.js';
+import { configure, tasks } from '@trigger.dev/sdk/v3';
 import { runSocietiesTask } from './trigger/tasks/societiesTask.js';
 
 // Load environment variables
 dotenv.config();
+// Configure Trigger.dev for triggering tasks by id
+if (process.env.TRIGGER_API_KEY) {
+  try {
+    configure({ accessToken: process.env.TRIGGER_API_KEY, baseURL: process.env.TRIGGER_API_URL || 'https://api.trigger.dev' });
+  } catch {}
+}
 
 const app = express();
 const PORT = process.env.API_PORT || 3001;
@@ -273,33 +280,16 @@ app.post('/api/societies/stream', apiKeyAuth, (req, res) => {
       }
     });
 
-    // Run the task asynchronously; it will POST progress to the webhook during execution.
-    (async () => {
-      try {
-        const result = await runSocietiesTask(payload, console);
-        // Post final done event to webhook
-        await fetch(progressWebhookUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            streamId,
-            type: 'done',
-            result: { results: result.results },
-            meta: result.meta || { streamId },
-          }),
-        }).catch(() => {});
-      } catch (err) {
-        await fetch(progressWebhookUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            streamId,
-            type: 'error',
-            message: err?.message || 'Task failed',
-          }),
-        }).catch(() => {});
+    // Trigger the task via Trigger.dev; the worker posts progress/done to the webhook
+    tasks.trigger('societies-task', payload).catch(async (err) => {
+      // If triggering fails, surface error to the SSE client immediately
+      if (!res.writableEnded) {
+        try { writeEvent(res, { event: 'error', data: { code: 'trigger_failed', message: err?.message || 'Failed to trigger task' } }); } catch {}
+        try { res.end(); } catch {}
       }
-    })();
+      try { clearInterval(heartbeat); } catch {}
+      streams.delete(streamId);
+    });
 
   } catch (error) {
     Sentry.captureException?.(error);
