@@ -6,6 +6,7 @@ import { run } from './index.js';
 import dotenv from 'dotenv';
 import { setSseHeaders, writeEvent, startHeartbeat } from './lib/sse.js';
 import { configure, tasks } from '@trigger.dev/sdk/v3';
+import './trigger/worker.js';
 import { runSocietiesTask } from './trigger/tasks/societiesTask.js';
 
 // Load environment variables
@@ -248,7 +249,9 @@ app.post('/api/societies/stream', apiKeyAuth, (req, res) => {
     // Normalize testType
     const normalizedTestType = normalizeTestType(finalTestType);
 
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    // When using Trigger.dev, the webhook must be publicly reachable. Allow override via PUBLIC_BASE_URL
+    const publicBase = process.env.PUBLIC_BASE_URL && process.env.USE_TRIGGER === 'true' ? process.env.PUBLIC_BASE_URL : `${req.protocol}://${req.get('host')}`;
+    const baseUrl = publicBase;
     const progressWebhookUrl = `${baseUrl}/api/streams/${streamId}/progress`;
 
     // Kick off task locally (can be replaced later with Trigger.dev invocation)
@@ -280,16 +283,47 @@ app.post('/api/societies/stream', apiKeyAuth, (req, res) => {
       }
     });
 
-    // Trigger the task via Trigger.dev; the worker posts progress/done to the webhook
-    tasks.trigger('societies-task', payload).catch(async (err) => {
-      // If triggering fails, surface error to the SSE client immediately
-      if (!res.writableEnded) {
-        try { writeEvent(res, { event: 'error', data: { code: 'trigger_failed', message: err?.message || 'Failed to trigger task' } }); } catch {}
-        try { res.end(); } catch {}
-      }
-      try { clearInterval(heartbeat); } catch {}
-      streams.delete(streamId);
-    });
+    const shouldUseTrigger = process.env.USE_TRIGGER === 'true' && !!process.env.TRIGGER_API_KEY;
+
+    if (!shouldUseTrigger) {
+      // Local execution fallback (best for local dev): previous behavior
+      (async () => {
+        try {
+          const result = await runSocietiesTask(payload, console);
+          await fetch(progressWebhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              streamId,
+              type: 'done',
+              result: { results: result.results },
+              meta: result.meta || { streamId },
+            }),
+          }).catch(() => {});
+        } catch (err) {
+          await fetch(progressWebhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              streamId,
+              type: 'error',
+              message: err?.message || 'Task failed',
+            }),
+          }).catch(() => {});
+        }
+      })();
+    } else {
+      // Trigger the task via Trigger.dev; the worker posts progress/done to the webhook
+      tasks.trigger('societies-task', payload).catch(async (err) => {
+        // If triggering fails, surface error to the SSE client immediately
+        if (!res.writableEnded) {
+          try { writeEvent(res, { event: 'error', data: { code: 'trigger_failed', message: err?.message || 'Failed to trigger task' } }); } catch {}
+          try { res.end(); } catch {}
+        }
+        try { clearInterval(heartbeat); } catch {}
+        streams.delete(streamId);
+      });
+    }
 
   } catch (error) {
     Sentry.captureException?.(error);
