@@ -313,16 +313,40 @@ app.post('/api/societies/stream', apiKeyAuth, (req, res) => {
         }
       })();
     } else {
-      // Trigger the task via Trigger.dev; the worker posts progress/done to the webhook
-      tasks.trigger('societies-task', payload).catch(async (err) => {
-        // If triggering fails, surface error to the SSE client immediately
-        if (!res.writableEnded) {
-          try { writeEvent(res, { event: 'error', data: { code: 'trigger_failed', message: err?.message || 'Failed to trigger task' } }); } catch {}
-          try { res.end(); } catch {}
-        }
-        try { clearInterval(heartbeat); } catch {}
-        streams.delete(streamId);
+      // Trigger.dev mode: Execute locally + register in Trigger.dev for tracking
+      // Trigger.dev task registered in cloud, but execution happens locally (Playwright requirement)
+      tasks.trigger('societies-task', payload).catch((err) => {
+        console.error('[Trigger.dev] Trigger failed:', err?.message);
+        // Continue with local execution even if trigger fails
       });
+      
+      // Execute task locally (same as USE_TRIGGER=false path)
+      // This ensures actual execution while Trigger.dev tracks it
+      (async () => {
+        try {
+          const result = await runSocietiesTask(payload, console);
+          await fetch(progressWebhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              streamId,
+              type: 'done',
+              result: { results: result.results },
+              meta: result.meta || { streamId },
+            }),
+          }).catch(() => {});
+        } catch (err) {
+          await fetch(progressWebhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              streamId,
+              type: 'error',
+              message: err?.message || 'Task failed',
+            }),
+          }).catch(() => {});
+        }
+      })();
     }
 
   } catch (error) {
