@@ -7,10 +7,11 @@ if (process.env.TRIGGER_API_KEY) {
   });
 }
 
+// Stub task - sirf registration ke liye
 export const societiesTask = task({
   id: 'societies-task',
   name: 'Societies Simulation Task',
   run: async (payload) => {
-    throw new Error('Stub - execution happens on server');
+    throw new Error('Stub task - not for execution');
   },
 });
