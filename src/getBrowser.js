@@ -42,8 +42,9 @@ export async function getBrowser() {
     console.error("[session] storageState exists=", fs.existsSync(STORAGE_STATE));
 
     // One real Chrome profile shared by CLI & Claude Desktop
+    const isHeadless = process.env.HEADLESS === 'true' || process.env.HEADLESS === true;
     const context = await chromium.launchPersistentContext(USER_DATA_DIR, {
-      headless: false,                  // headful mode to see automation in action
+      headless: isHeadless,
       viewport: { width: 1280, height: 800 },
       args: [
         "--disable-blink-features=AutomationControlled",

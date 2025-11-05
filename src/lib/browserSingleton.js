@@ -6,8 +6,9 @@ let launching = false;
 
 async function launchPersistent() {
   ensureSessionDirs();
+  const isHeadless = process.env.HEADLESS === 'true' || process.env.HEADLESS === true;
   const ctx = await chromium.launchPersistentContext(USER_DATA_DIR, {
-    headless: false,
+    headless: isHeadless,
     viewport: { width: 1280, height: 800 },
     args: [
       '--disable-blink-features=AutomationControlled',
