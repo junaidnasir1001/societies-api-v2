@@ -137,3 +137,13 @@ public
 # Temporary folders
 tmp/
 temp/
+
+# Deployment scripts (not needed in client repo)
+deploy.sh
+deploy-v2-to-droplet.sh
+deploy-existing-droplet.sh
+update-server.sh
+handle-existing-deployment.sh
+rename-and-deploy.sh
+get-browserbase-session.sh
+check-status.js
