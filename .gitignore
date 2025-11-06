@@ -148,3 +148,26 @@ handle-existing-deployment.sh
 rename-and-deploy.sh
 get-browserbase-session.sh
 check-status.js
+
+# Test files (not needed in client repo)
+test-*.js
+test-*.sh
+test.sh
+
+# Internal documentation (not needed in client repo)
+CLIENT_HANDOFF_READY.md
+DEPLOYMENT_GUIDE.md
+DIGITALOCEAN_DEPLOYMENT.md
+EXISTING_DROPLET_DEPLOYMENT.md
+NEW_UI_UPDATE.md
+POSTMAN_TESTING_FIXED.md
+Postman_Quick_Setup.md
+SSE_FIX_SUMMARY.md
+Societies_New_UI_Postman_Collection.json
+
+# Netlify config (not needed if using DigitalOcean)
+.netlify/
+
+# Backup files
+.env.backup
+*.backup
