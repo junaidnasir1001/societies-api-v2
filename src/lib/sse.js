@@ -12,7 +12,7 @@ export function setSseHeaders(res) {
   }
 }
 
-export function writeEvent(res, { event, data, id }) {
+export function writeEvent(res, { event, data, id, fieldName = 'data' }) {
   if (res.writableEnded) return;
   if (id !== undefined) {
     res.write(`id: ${id}\n`);
@@ -21,7 +21,7 @@ export function writeEvent(res, { event, data, id }) {
     res.write(`event: ${event}\n`);
   }
   const payload = typeof data === 'string' ? data : JSON.stringify(data ?? {});
-  res.write(`data: ${payload}\n\n`);
+  res.write(`${fieldName}: ${payload}\n\n`);
 }
 
 export function startHeartbeat(res, intervalMs = 30000) {

@@ -6,16 +6,41 @@ import { runSimulation } from '../../societies.js';
 
 async function postProgress(progressWebhookUrl, body) {
   try {
+    if (!progressWebhookUrl) {
+      console.error('[postProgress] No webhook URL provided');
+      return;
+    }
+    
     const response = await fetch(progressWebhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+    
     if (!response.ok) {
-      console.error(`[postProgress] Error: ${response.status} ${response.statusText}`);
+      const errorText = await response.text().catch(() => '');
+      console.error(`[postProgress] Error: ${response.status} ${response.statusText}`, {
+        url: progressWebhookUrl,
+        bodyType: body.type,
+        errorText: errorText.substring(0, 200)
+      });
+    } else {
+      // Log success for done events
+      if (body.type === 'done') {
+        console.log(`[postProgress] Successfully sent done event to webhook`, {
+          url: progressWebhookUrl,
+          hasResult: !!body.result,
+          hasResults: !!body.result?.results
+        });
+      }
     }
   } catch (error) {
-    console.error('[postProgress] Fetch error:', error.message);
+    console.error('[postProgress] Fetch error:', {
+      message: error.message,
+      url: progressWebhookUrl,
+      bodyType: body.type,
+      stack: error.stack
+    });
   }
 }
 
@@ -73,6 +98,26 @@ export async function runSocietiesTask(payload, logger = console) {
     };
 
     await postProgress(progressWebhookUrl, { streamId, type: 'progress', percent: 90, message: 'Finalizing' });
+
+    // Send done event directly from task using postProgress to ensure it's sent
+    // This ensures the done event is sent immediately after results are ready
+    const donePayload = {
+      streamId,
+      type: 'done',
+      result: { results: results },
+      meta: { streamId }
+    };
+    
+    console.log(`[societiesTask] Preparing done event for stream ${streamId}`, {
+      hasResults: !!results,
+      resultKeys: Object.keys(results),
+      impactScore: results.impactScore,
+      attention: results.attention,
+      webhookUrl: progressWebhookUrl
+    });
+    
+    // Use postProgress to send done event (it has better error handling)
+    await postProgress(progressWebhookUrl, donePayload);
 
     return { results, meta: { streamId } };
   } catch (error) {

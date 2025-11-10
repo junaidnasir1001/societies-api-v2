@@ -287,29 +287,36 @@ app.post('/api/societies/stream', apiKeyAuth, (req, res) => {
 
     if (!shouldUseTrigger) {
       // Local execution fallback (best for local dev): previous behavior
+      // Note: The task itself now sends the done event, so we don't need to send it here
       (async () => {
         try {
           const result = await runSocietiesTask(payload, console);
-          await fetch(progressWebhookUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              streamId,
-              type: 'done',
-              result: { results: result.results },
-              meta: result.meta || { streamId },
-            }),
-          }).catch(() => {});
+          console.log(`[SSE] Task completed for stream ${streamId}`, {
+            hasResults: !!result?.results,
+            resultKeys: result?.results ? Object.keys(result.results) : [],
+            hasMeta: !!result?.meta,
+            note: 'Task should have already sent done event to webhook'
+          });
+          // Task now sends done event directly, so we don't need to send it again
         } catch (err) {
-          await fetch(progressWebhookUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              streamId,
-              type: 'error',
-              message: err?.message || 'Task failed',
-            }),
-          }).catch(() => {});
+          console.error(`[SSE] Task error for stream ${streamId}:`, err);
+          // Send error event to webhook
+          try {
+            const errorResponse = await fetch(progressWebhookUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                streamId,
+                type: 'error',
+                message: err?.message || 'Task failed',
+              }),
+            });
+            if (!errorResponse.ok) {
+              console.error(`[SSE] Error webhook failed for stream ${streamId}:`, errorResponse.status);
+            }
+          } catch (fetchErr) {
+            console.error(`[SSE] Failed to send error webhook for stream ${streamId}:`, fetchErr);
+          }
         }
       })();
     } else {
@@ -322,29 +329,36 @@ app.post('/api/societies/stream', apiKeyAuth, (req, res) => {
       
       // Execute task locally (same as USE_TRIGGER=false path)
       // This ensures actual execution while Trigger.dev tracks it
+      // Note: The task itself now sends the done event, so we don't need to send it here
       (async () => {
         try {
           const result = await runSocietiesTask(payload, console);
-          await fetch(progressWebhookUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              streamId,
-              type: 'done',
-              result: { results: result.results },
-              meta: result.meta || { streamId },
-            }),
-          }).catch(() => {});
+          console.log(`[SSE] Task completed for stream ${streamId}`, {
+            hasResults: !!result?.results,
+            resultKeys: result?.results ? Object.keys(result.results) : [],
+            hasMeta: !!result?.meta,
+            note: 'Task should have already sent done event to webhook'
+          });
+          // Task now sends done event directly, so we don't need to send it again
         } catch (err) {
-          await fetch(progressWebhookUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              streamId,
-              type: 'error',
-              message: err?.message || 'Task failed',
-            }),
-          }).catch(() => {});
+          console.error(`[SSE] Task error for stream ${streamId}:`, err);
+          // Send error event to webhook
+          try {
+            const errorResponse = await fetch(progressWebhookUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                streamId,
+                type: 'error',
+                message: err?.message || 'Task failed',
+              }),
+            });
+            if (!errorResponse.ok) {
+              console.error(`[SSE] Error webhook failed for stream ${streamId}:`, errorResponse.status);
+            }
+          } catch (fetchErr) {
+            console.error(`[SSE] Failed to send error webhook for stream ${streamId}:`, fetchErr);
+          }
         }
       })();
     }
@@ -363,10 +377,23 @@ app.post('/api/streams/:streamId/progress', express.json({ limit: '1mb' }), (req
   const { streamId } = req.params;
   const entry = streams.get(streamId);
   if (!entry) {
+    console.error(`[SSE Webhook] Stream ${streamId} not found`);
     return res.status(404).json({ ok: false, error: 'stream_not_found' });
   }
   const { res: sse } = entry;
   const { type, percent, message, data, result, meta } = req.body || {};
+  
+  // Log incoming webhook for debugging
+  console.log(`[SSE Webhook] Received ${type} event for stream ${streamId}`, {
+    type,
+    hasResult: !!result,
+    resultType: typeof result,
+    resultKeys: result ? Object.keys(result) : [],
+    resultValue: result ? JSON.stringify(result).substring(0, 500) : 'null',
+    hasMeta: !!meta,
+    streamEnded: sse.writableEnded,
+    fullBody: JSON.stringify(req.body).substring(0, 1000)
+  });
 
   if (type === 'progress') {
     // Only attempt to write if stream is still open
@@ -381,9 +408,138 @@ app.post('/api/streams/:streamId/progress', express.json({ limit: '1mb' }), (req
     try { clearInterval(entry.heartbeat); } catch {}
     streams.delete(streamId);
   } else if (type === 'done') {
-    if (!sse.writableEnded) {
-      writeEvent(sse, { event: 'done', data: { results: result?.results ?? result, meta } });
-      try { sse.end(); } catch {}
+    if (sse.writableEnded) {
+      console.error(`[SSE] Stream ${streamId} already ended, cannot send done event`);
+      return res.json({ ok: false, error: 'stream_ended' });
+    }
+    
+    try {
+      // Extract results - handle both nested and flat structures
+      // The task sends: { result: { results: {...} }, meta: {...} }
+      // So result.results contains the actual results object
+      // Also handle case where result itself is the results object
+      let resultsData = null;
+      
+      console.log(`[SSE] Extracting results data for stream ${streamId}`, {
+        hasResult: !!result,
+        resultType: typeof result,
+        resultIsArray: Array.isArray(result),
+        resultKeys: result && typeof result === 'object' ? Object.keys(result) : 'N/A',
+        hasResultResults: !!(result && result.results),
+        resultResultsType: result && result.results ? typeof result.results : 'N/A',
+        resultResultsKeys: result && result.results && typeof result.results === 'object' ? Object.keys(result.results) : 'N/A'
+      });
+      
+      if (result) {
+        // Check if result has a nested results property
+        if (result.results && typeof result.results === 'object' && !Array.isArray(result.results)) {
+          resultsData = result.results;
+          console.log(`[SSE] Using result.results (nested structure)`);
+        } 
+        // Check if result itself is the results object (has impactScore or attention)
+        else if (result.impactScore || result.attention) {
+          resultsData = result;
+          console.log(`[SSE] Using result directly (flat structure)`);
+        } 
+        // Fallback: use result as-is
+        else {
+          resultsData = result;
+          console.log(`[SSE] Using result as-is (fallback)`);
+        }
+      }
+      
+      console.log(`[SSE] Extracted resultsData for stream ${streamId}`, {
+        hasResultsData: !!resultsData,
+        resultsDataType: typeof resultsData,
+        resultsDataKeys: resultsData && typeof resultsData === 'object' ? Object.keys(resultsData) : 'N/A',
+        resultsDataValue: resultsData ? JSON.stringify(resultsData).substring(0, 500) : 'null'
+      });
+      
+      // Log for debugging empty data issue
+      if (!resultsData || (typeof resultsData === 'object' && Object.keys(resultsData).length === 0)) {
+        console.error(`[SSE] Error: Empty or invalid results data for stream ${streamId}`, {
+          result,
+          resultType: typeof result,
+          resultKeys: result ? Object.keys(result) : [],
+          resultsData,
+          meta,
+          requestBody: req.body
+        });
+        // Send error event instead of empty done event
+        writeEvent(sse, { event: 'error', data: { code: 'empty_results', message: 'No results data received from task' } });
+        try { sse.end(); } catch {}
+        try { clearInterval(entry.heartbeat); } catch {}
+        streams.delete(streamId);
+        return res.json({ ok: false, error: 'empty_results' });
+      }
+      
+      // Transform to new format: response: [{...}] where array contains fields directly
+      // Remove nested "results" object and "meta" object
+      const responseArray = [{
+        impactScore: resultsData.impactScore || {},
+        attention: resultsData.attention || {},
+        insights: resultsData.insights || '',
+        winner: resultsData.winner || 'N/A',
+        averageScore: resultsData.averageScore || 'N/A',
+        uplift: resultsData.uplift || 'N/A',
+        summaryText: resultsData.summaryText || '',
+        keyFindings: resultsData.keyFindings || []
+      }];
+      
+      console.log(`[SSE] Sending done event for stream ${streamId}`, {
+        responseArrayLength: responseArray.length,
+        hasImpactScore: !!responseArray[0]?.impactScore,
+        hasAttention: !!responseArray[0]?.attention,
+        responseArrayPreview: JSON.stringify(responseArray).substring(0, 200)
+      });
+      
+      // Use "response" as the SSE field name instead of "data" as requested
+      // Note: This is non-standard SSE format (standard uses "data:"), but matches client requirements
+      const responsePayload = JSON.stringify(responseArray);
+      console.log(`[SSE] Writing done event for stream ${streamId}`, {
+        payloadLength: responsePayload.length,
+        payloadPreview: responsePayload.substring(0, 300),
+        firstItemKeys: responseArray[0] ? Object.keys(responseArray[0]) : [],
+        streamWritable: !sse.writableEnded,
+        streamDestroyed: sse.destroyed
+      });
+      
+      // Write the event manually to ensure proper format
+      // Send both "response:" (custom) and "data:" (standard) for maximum compatibility
+      // Custom clients can parse "response:", standard clients will use "data:"
+      if (!sse.writableEnded && !sse.destroyed) {
+        try {
+          sse.write(`event: done\n`);
+          sse.write(`response: ${responsePayload}\n`);  // Custom field as requested
+          sse.write(`data: ${responsePayload}\n\n`);    // Standard field for compatibility
+          console.log(`[SSE] Done event written successfully for stream ${streamId} with both response: and data: fields`);
+        } catch (writeError) {
+          console.error(`[SSE] Error writing done event for stream ${streamId}:`, writeError);
+          throw writeError;
+        }
+      } else {
+        console.error(`[SSE] Cannot write done event - stream state:`, {
+          writableEnded: sse.writableEnded,
+          destroyed: sse.destroyed,
+          streamId
+        });
+      }
+      
+      try { 
+        // Flush the response to ensure it's sent immediately
+        if (typeof sse.flush === 'function') {
+          sse.flush();
+        }
+        sse.end(); 
+      } catch (err) {
+        console.error(`[SSE] Error ending stream ${streamId}:`, err);
+      }
+    } catch (error) {
+      console.error(`[SSE] Error processing done event for stream ${streamId}:`, error);
+      try {
+        writeEvent(sse, { event: 'error', data: { code: 'processing_error', message: error.message } });
+        sse.end();
+      } catch {}
     }
     try { clearInterval(entry.heartbeat); } catch {}
     streams.delete(streamId);
