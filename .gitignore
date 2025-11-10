@@ -61,7 +61,7 @@ playwright-report/
 test-results/
 
 # Session and authentication data
-sessionPaths.js
+# sessionPaths.js
 *.session
 *.cookies
 
